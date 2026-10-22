@@ -1,0 +1,748 @@
+{% load static %}
+{% load humanize %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Monthly Salary Statement - {{ bill.teacher.full_name }} ({{ bill.month_name }} {{ bill.year }})</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/fontawesome/css/all.min.css' %}">
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm 10mm;
+    }
+    body {
+      background-color: #e2e8f0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #000000;
+      margin: 0;
+      padding: 16px 0 30px;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    /* Screen Toolbar */
+    .screen-toolbar {
+      max-width: 820px;
+      margin: 0 auto 16px;
+      background: #ffffff;
+      padding: 10px 16px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    /* Outer Paper Container */
+    .statement-sheet {
+      width: 100%;
+      max-width: 820px;
+      min-height: 1100px;
+      margin: 0 auto;
+      background: #ffffff;
+      padding: 24px 28px;
+      box-sizing: border-box;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+      position: relative;
+    }
+
+    /* Header Section */
+    .statement-header {
+      position: relative;
+      text-align: center;
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+    }
+    .header-logo {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 75px;
+      height: 75px;
+      object-fit: contain;
+      border-radius: 50%;
+    }
+    .inst-title-1 {
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      margin: 0;
+      text-transform: uppercase;
+      color: #000000;
+    }
+    .inst-title-2 {
+      font-size: 13px;
+      font-weight: 700;
+      margin: 1px 0;
+      color: #000000;
+    }
+    .statement-month-title {
+      font-size: 13px;
+      font-weight: 800;
+      margin-top: 3px;
+      color: #000000;
+    }
+
+    /* Information Sections */
+    .section-title-bar {
+      font-weight: 800;
+      font-size: 11.5px;
+      color: #000000;
+      margin-top: 10px;
+      margin-bottom: 3px;
+    }
+
+    .info-grid {
+      width: 100%;
+      margin-bottom: 6px;
+      font-size: 10.5px;
+    }
+    .info-grid td {
+      padding: 1.5px 2px;
+      vertical-align: top;
+      color: #000000;
+    }
+
+    /* Section Subheadings */
+    .subheading-row {
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 8px;
+      margin-bottom: 3px;
+      color: #000000;
+    }
+
+    /* Matrix Tables (Pay, Allowances, Deductions) */
+    .salary-matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #000000;
+      margin-bottom: 8px;
+      font-size: 10.5px;
+    }
+    .salary-matrix-table th, .salary-matrix-table td {
+      border: 1px solid #000000;
+      padding: 2.5px 6px;
+      color: #000000;
+      vertical-align: middle;
+    }
+    .salary-matrix-table th {
+      background-color: #ffffff;
+      font-weight: 800;
+      text-align: left;
+    }
+    .salary-matrix-table th.th-amt {
+      text-align: right;
+      width: 110px;
+    }
+    .salary-matrix-table td.td-amt {
+      text-align: right;
+      font-weight: 700;
+      width: 110px;
+    }
+
+    /* Totals Summary Line */
+    .totals-summary-strip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 8px;
+      margin: 10px 0 10px;
+      background-color: #ffffff;
+      font-size: 12px;
+      font-weight: 800;
+      border-top: 1.5px solid #000000;
+      border-bottom: 1.5px solid #000000;
+      color: #000000;
+    }
+
+    /* Bank & Payee Details */
+    .payee-box {
+      font-size: 10.5px;
+      margin-bottom: 8px;
+      line-height: 1.45;
+      color: #000000;
+    }
+
+    /* Leaves Strip */
+    .leaves-strip {
+      display: flex;
+      gap: 20px;
+      font-size: 10.5px;
+      padding: 3px 0;
+      border-top: 1px solid #000000;
+      border-bottom: 1px solid #000000;
+      margin: 8px 0;
+      color: #000000;
+    }
+
+    /* Address Grid */
+    .address-grid {
+      width: 100%;
+      font-size: 10.5px;
+      margin-bottom: 12px;
+    }
+    .address-grid td {
+      padding: 1.5px 2px;
+      color: #000000;
+    }
+
+    /* Signatures */
+    .signatures-block {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 36px;
+      margin-bottom: 16px;
+      padding: 0 10px;
+    }
+    .sig-col {
+      text-align: center;
+      width: 190px;
+    }
+    .sig-bar {
+      border-top: 1px solid #000000;
+      padding-top: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #000000;
+    }
+
+    /* Footer Notes */
+    .statement-footer {
+      font-size: 9px;
+      color: #333333;
+      margin-top: 10px;
+      line-height: 1.35;
+      border-top: 1px solid #cccccc;
+      padding-top: 6px;
+    }
+
+    @page {
+      size: A4 portrait;
+      margin: 4mm 6mm;
+    }
+
+    /* Print Media */
+    @media print {
+      html, body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100% !important;
+        overflow: hidden !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .screen-toolbar {
+        display: none !important;
+      }
+      .statement-sheet {
+        box-shadow: none !important;
+        padding: 2mm 4mm !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        min-height: 0 !important;
+        height: 100% !important;
+        max-height: 288mm !important;
+        box-sizing: border-box !important;
+        page-break-inside: avoid !important;
+        page-break-before: avoid !important;
+        page-break-after: avoid !important;
+        break-inside: avoid !important;
+      }
+      .header-logo {
+        width: 55px !important;
+        height: 55px !important;
+      }
+      .statement-header {
+        margin-bottom: 6px !important;
+        padding-bottom: 3px !important;
+      }
+      .inst-title-1 {
+        font-size: 13.5px !important;
+      }
+      .inst-title-2 {
+        font-size: 11.5px !important;
+      }
+      .statement-month-title {
+        font-size: 12px !important;
+        margin-top: 2px !important;
+      }
+      .section-title-bar {
+        font-size: 10.5px !important;
+        margin-top: 6px !important;
+        margin-bottom: 2px !important;
+      }
+      .info-grid {
+        font-size: 9.5px !important;
+        margin-bottom: 4px !important;
+      }
+      .info-grid td {
+        padding: 1px 2px !important;
+      }
+      .subheading-row {
+        font-size: 10px !important;
+        margin-top: 5px !important;
+        margin-bottom: 2px !important;
+      }
+      .salary-matrix-table {
+        margin-bottom: 5px !important;
+        font-size: 9.5px !important;
+      }
+      .salary-matrix-table th, .salary-matrix-table td {
+        border: 1px solid #000000 !important;
+        color: #000000 !important;
+        padding: 1.5px 5px !important;
+      }
+      .totals-summary-strip {
+        border-top: 1.5px solid #000000 !important;
+        border-bottom: 1.5px solid #000000 !important;
+        color: #000000 !important;
+        margin: 6px 0 !important;
+        padding: 3px 6px !important;
+        font-size: 11px !important;
+      }
+      .payee-box {
+        font-size: 9.5px !important;
+        margin-bottom: 5px !important;
+        line-height: 1.35 !important;
+      }
+      .leaves-strip {
+        font-size: 9.5px !important;
+        padding: 2px 0 !important;
+        margin: 5px 0 !important;
+      }
+      .address-grid {
+        font-size: 9.5px !important;
+        margin-bottom: 8px !important;
+      }
+      .address-grid td {
+        padding: 1px 2px !important;
+      }
+      .signatures-block {
+        margin-top: 18px !important;
+        margin-bottom: 8px !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      .sig-bar {
+        font-size: 9.5px !important;
+        padding-top: 2px !important;
+      }
+      .statement-footer {
+        font-size: 8px !important;
+        margin-top: 6px !important;
+        padding-top: 4px !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Screen Control Bar (Hidden on Print) -->
+  <div class="screen-toolbar no-print">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <div class="d-flex align-items-center gap-2">
+        <a href="{% url 'salary_bill_list' %}" class="btn btn-outline-secondary btn-sm">
+          <i class="fas fa-arrow-left me-1"></i> Back to Salary Bills
+        </a>
+        <a href="{% url 'sync_salary_bill_attendance' bill.pk %}" class="btn btn-outline-primary btn-sm fw-bold" title="Re-calculate attendance, late cuts, and bonuses from daily logs">
+          <i class="fas fa-sync-alt me-1"></i> Sync from Attendance
+        </a>
+        <button onclick="window.print()" class="btn btn-dark btn-sm fw-bold px-3">
+          <i class="fas fa-print me-1"></i> Print Salary Statement (A4)
+        </button>
+      </div>
+
+      <div class="d-flex align-items-center gap-2">
+        <a href="{{ whatsapp_data.url }}" target="_blank" class="btn btn-success btn-sm fw-bold" title="Send salary slip to Teacher WhatsApp ({{ whatsapp_data.raw_phone }})">
+          <i class="fab fa-whatsapp me-1"></i> WhatsApp Teacher
+        </a>
+        <button type="button" class="btn btn-outline-success btn-sm" onclick="copyWhatsAppMsg()" title="Copy WhatsApp message text">
+          <i class="fas fa-copy me-1"></i> <span id="copyBtnText">Copy Msg</span>
+        </button>
+        <a href="{% url 'salary_bill_update' bill.pk %}" class="btn btn-outline-primary btn-sm">
+          <i class="fas fa-edit me-1"></i> Edit Bill
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <textarea id="whatsappMsgContent" style="display: none;">{{ whatsapp_data.text }}</textarea>
+  <script>
+    function copyWhatsAppMsg() {
+      const text = document.getElementById('whatsappMsgContent').value;
+      navigator.clipboard.writeText(text).then(() => {
+        const btnText = document.getElementById('copyBtnText');
+        btnText.innerText = 'Copied!';
+        setTimeout(() => { btnText.innerText = 'Copy Msg'; }, 2500);
+      });
+    }
+  </script>
+
+  <!-- Official Monthly Salary Statement Paper -->
+  <div class="statement-sheet">
+
+    <!-- 1. Header with Circular School Emblem -->
+    <div class="statement-header">
+      {% if school_setting.logo %}
+        <img src="{{ school_setting.logo.url }}" alt="School Crest" class="header-logo">
+      {% else %}
+        <img src="{% static 'dist/img/logo.png' %}" alt="School Crest" class="header-logo">
+      {% endif %}
+
+      <div class="inst-title-1">{{ school_setting.name }}</div>
+      <div class="inst-title-2">Accounts & Finance Office — Qalagay, Tehsil Kabal, Swat</div>
+      <div class="statement-month-title">Monthly Salary Statement ({{ bill.month_name }}-{{ bill.year }})</div>
+    </div>
+
+    <!-- 2. Personal Information Block -->
+    <div class="section-title-bar">
+      Personal Information of Mr/Ms {{ bill.teacher.full_name|upper }} d/w/s of {{ bill.teacher.father_name|upper|default:"---" }}
+    </div>
+
+    <table class="info-grid">
+      <tr>
+        <td style="width: 35%;"><strong>Personnel Number:</strong> {{ bill.teacher.teacher_id }}</td>
+        <td style="width: 35%;"><strong>CNIC:</strong> {{ bill.teacher.cnic|default:"15604-XXXXXXX-X" }}</td>
+        <td style="width: 30%;"><strong>NTN / Tax ID:</strong> GPS-EMP-{{ bill.teacher.id }}</td>
+      </tr>
+      <tr>
+        <td><strong>Date of Birth:</strong> {{ bill.teacher.dob|date:"d.m.Y"|default:"---" }}</td>
+        <td><strong>Entry into School Service:</strong> {{ bill.teacher.joining_date|date:"d.m.Y"|default:"---" }}</td>
+        <td><strong>Length of Service:</strong> {{ length_of_service }}</td>
+      </tr>
+    </table>
+
+    <!-- 3. Employment Category & School Details -->
+    <div class="subheading-row">
+      <strong>Employment Category:</strong> {{ bill.teacher.status }} Faculty / Academic Staff
+    </div>
+
+    <table class="info-grid">
+      <tr>
+        <td style="width: 50%;"><strong>Designation:</strong> {{ bill.teacher.designation|upper }}</td>
+        <td style="width: 50%; text-align: right;"><strong>{{ school_setting.short_name|default:"SMS" }}-{{ school_setting.name|upper }}</strong></td>
+      </tr>
+      <tr>
+        <td><strong>School / Inst:</strong> {{ school_setting.name }}</td>
+        <td style="text-align: right;"><strong>Campus:</strong> {{ school_setting.address|default:"Main Campus" }}</td>
+      </tr>
+      <tr>
+        <td><strong>Payroll Section:</strong> 001</td>
+        <td><strong>Payment Center:</strong> School Accounts Office</td>
+        <td style="text-align: right;"><strong>Disbursement:</strong> Cash / Direct Bank</td>
+      </tr>
+      <!-- Private School Payroll Row (No GPF) -->
+      <tr>
+        <td><strong>Payment Status:</strong> <strong>{{ bill.payment_status|upper }}</strong></td>
+        <td><strong>Amount Paid:</strong> PKR {{ bill.actual_paid|floatformat:2|intcomma }}</td>
+        <td style="text-align: right;"><strong>Remaining Dues:</strong> PKR {{ bill.balance_left|floatformat:2|intcomma }}</td>
+      </tr>
+      <tr>
+        <td colspan="3" style="padding-top: 3px;">
+          <strong>Pay and Allowances:</strong>
+          &nbsp;&nbsp;Pay scale: <strong>{{ bill.teacher.salary_scale.name|default:"Private School Faculty Scale" }}</strong>
+          &nbsp;&nbsp;Pay Scale Type: <strong>Academic</strong>
+          &nbsp;&nbsp;Scale / Stage: <strong>Grade {{ bill.teacher.salary_scale.id|default:"12" }}</strong>
+          &nbsp;&nbsp;Working Days: <strong>{{ bill.days_present }} / 30 Days</strong>
+        </td>
+      </tr>
+    </table>
+
+    <!-- 4. Pay and Allowances Table (4-Column Matrix matching PDF) -->
+    <table class="salary-matrix-table">
+      <thead>
+        <tr>
+          <th style="width: 35%;">Wage type</th>
+          <th class="th-amt">Amount</th>
+          <th style="width: 35%;">Wage type</th>
+          <th class="th-amt">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pair in allowance_pairs %}
+        <tr>
+          <td>
+            {% if pair.left %}
+              <strong>{{ pair.left.code }}</strong>&nbsp; {{ pair.left.name }}
+            {% endif %}
+          </td>
+          <td class="td-amt">
+            {% if pair.left and pair.left.amount is not None %}
+              {{ pair.left.amount|floatformat:2|intcomma }}
+            {% endif %}
+          </td>
+          <td>
+            {% if pair.right and pair.right.amount is not None %}
+              <strong>{{ pair.right.code }}</strong>&nbsp; {{ pair.right.name }}
+            {% endif %}
+          </td>
+          <td class="td-amt">
+            {% if pair.right and pair.right.amount is not None %}
+              {{ pair.right.amount|floatformat:2|intcomma }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- 5. Deductions - General (4-Column Matrix, Private School: No GPF) -->
+    <div class="section-title-bar">Deductions - Attendance & Fines</div>
+    <table class="salary-matrix-table">
+      <thead>
+        <tr>
+          <th style="width: 35%;">Wage type</th>
+          <th class="th-amt">Amount</th>
+          <th style="width: 35%;">Wage type</th>
+          <th class="th-amt">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pair in deduction_pairs %}
+        <tr>
+          <td>
+            {% if pair.left %}
+              <strong>{{ pair.left.code }}</strong>&nbsp; {{ pair.left.name }}
+            {% endif %}
+          </td>
+          <td class="td-amt">
+            {% if pair.left and pair.left.amount is not None %}
+              {{ pair.left.amount|floatformat:2|intcomma }}
+            {% endif %}
+          </td>
+          <td>
+            {% if pair.right and pair.right.amount is not None %}
+              <strong>{{ pair.right.code }}</strong>&nbsp; {{ pair.right.name }}
+            {% endif %}
+          </td>
+          <td class="td-amt">
+            {% if pair.right and pair.right.amount is not None %}
+              {{ pair.right.amount|floatformat:2|intcomma }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- 6. Prior Months Unpaid Salary Dues / Arrears (e.g. Jan + Feb if not taken) -->
+    <div class="section-title-bar">Previous Months Unpaid Dues & Arrears Carried Forward</div>
+    <table class="salary-matrix-table">
+      <thead>
+        <tr>
+          <th style="width: 25%;">Period / Month</th>
+          <th style="width: 35%;">Bill Reference & Description</th>
+          <th style="text-align: right; width: 14%;">Net Payable</th>
+          <th style="text-align: right; width: 13%;">Paid Amount</th>
+          <th style="text-align: right; width: 13%;">Unpaid Due (PKR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if unpaid_previous_bills %}
+          {% for upb in unpaid_previous_bills %}
+          <tr>
+            <td><strong>{{ upb.period }}</strong></td>
+            <td>Unpaid / deferred salary bill for {{ upb.period }}</td>
+            <td class="td-amt">{{ upb.net_payable|floatformat:2|intcomma }}</td>
+            <td class="td-amt">{{ upb.paid_amount|floatformat:2|intcomma }}</td>
+            <td class="td-amt" style="color: #b91c1c; font-weight: 800;">+{{ upb.unpaid_amount|floatformat:2|intcomma }}</td>
+          </tr>
+          {% endfor %}
+          <tr style="background-color: #f8fafc; font-weight: 800;">
+            <td colspan="4" style="text-align: right;">Total Previous Unpaid Dues Auto-Added:</td>
+            <td class="td-amt" style="color: #b91c1c;">+{{ calculated_previous_dues|floatformat:2|intcomma }}</td>
+          </tr>
+        {% elif effective_previous_dues > 0 %}
+          <tr>
+            <td><strong>Prior Months Carried Over</strong></td>
+            <td>Accumulated unpaid salary dues from previous months</td>
+            <td class="td-amt">{{ effective_previous_dues|floatformat:2|intcomma }}</td>
+            <td class="td-amt">0.00</td>
+            <td class="td-amt" style="color: #b91c1c; font-weight: 800;">+{{ effective_previous_dues|floatformat:2|intcomma }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td>---</td>
+            <td>No previous unpaid salary dues for this teacher. Previous months cleared.</td>
+            <td class="td-amt">0.00</td>
+            <td class="td-amt">0.00</td>
+            <td class="td-amt">0.00</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <!-- 7. Deductions - Loans and Advances (From School) -->
+    <div class="section-title-bar d-flex justify-content-between align-items-center">
+      <span>Staff Loans & Advances from School</span>
+      <span style="font-size: 10px; font-weight: normal;">
+        {% if bill.deduct_loan and effective_loan_deduction > 0 %}
+          <span class="badge bg-danger text-white">Cut Applied This Slip: PKR {{ effective_loan_deduction|floatformat:2|intcomma }}</span>
+        {% else %}
+          <span class="badge bg-success text-white">Full Salary: No Loan Cut Applied</span>
+        {% endif %}
+      </span>
+    </div>
+    <table class="salary-matrix-table">
+      <thead>
+        <tr>
+          <th style="width: 25%;">Loan Title</th>
+          <th style="width: 30%;">Approval Date & Status</th>
+          <th style="text-align: right; width: 15%;">Principal Amount</th>
+          <th style="text-align: right; width: 15%;">Total Repaid</th>
+          <th style="text-align: right; width: 15%;">Remaining Loan Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if active_loans %}
+          {% for loan in active_loans %}
+          <tr>
+            <td><strong>{{ loan.loan_title }}</strong></td>
+            <td>Approved: {{ loan.loan_date|date:"d.m.Y" }} | Status: {{ loan.status }}</td>
+            <td class="td-amt">{{ loan.principal_amount|floatformat:2|intcomma }}</td>
+            <td class="td-amt" style="color: #15803d;">{{ loan.total_repaid|floatformat:2|intcomma }}</td>
+            <td class="td-amt" style="color: #b91c1c; font-weight: 800;">{{ loan.remaining_balance|floatformat:2|intcomma }}</td>
+          </tr>
+          {% endfor %}
+          <tr style="background-color: #f8fafc;">
+            <td colspan="4" style="text-align: right; font-weight: 700;">
+              {% if bill.deduct_loan and effective_loan_deduction > 0 %}
+                Installment Deducted from Current Salary:
+              {% else %}
+                Loan Cutting Option: (Skipped / Not Cut — Full Salary):
+              {% endif %}
+            </td>
+            <td class="td-amt" style="font-weight: 800; color: {% if bill.deduct_loan %}#b91c1c{% else %}#15803d{% endif %};">
+              {% if bill.deduct_loan and effective_loan_deduction > 0 %}
+                -{{ effective_loan_deduction|floatformat:2|intcomma }}
+              {% else %}
+                0.00
+              {% endif %}
+            </td>
+          </tr>
+        {% elif bill.other_deductions > 0 %}
+          <tr>
+            <td><strong>Salary Advance / Loan</strong></td>
+            <td>Staff loan advance installment</td>
+            <td class="td-amt">{{ bill.other_deductions|floatformat:2|intcomma }}</td>
+            <td class="td-amt">{{ bill.other_deductions|floatformat:2|intcomma }}</td>
+            <td class="td-amt">0.00</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td>---</td>
+            <td>No active loan or advance outstanding with the school for this teacher.</td>
+            <td class="td-amt">0.00</td>
+            <td class="td-amt">0.00</td>
+            <td class="td-amt">0.00</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <!-- 8. Complete Balance Sheet Statement Strip -->
+    <div class="section-title-bar">Comprehensive Salary Balance Sheet Statement</div>
+    <table class="salary-matrix-table" style="background-color: #fcfcfc;">
+      <thead>
+        <tr style="background-color: #f1f5f9;">
+          <th style="width: 20%; text-align: center;">1. Current Gross</th>
+          <th style="width: 20%; text-align: center;">2. Old Dues Added</th>
+          <th style="width: 20%; text-align: center;">3. Attendance Cuts</th>
+          <th style="width: 20%; text-align: center;">4. Loan Cut</th>
+          <th style="width: 20%; text-align: center; background-color: #e2e8f0;">5. Final Net Payable</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="text-align: center; font-weight: 700;">
+          <td style="text-align: center;">PKR {{ bill.gross_pay|floatformat:2|intcomma }}</td>
+          <td style="text-align: center; color: #b91c1c;">+PKR {{ effective_previous_dues|floatformat:2|intcomma }}</td>
+          <td style="text-align: center; color: #b91c1c;">-PKR {{ bill.deductions|floatformat:2|intcomma }}</td>
+          <td style="text-align: center; color: #b91c1c;">
+            {% if bill.deduct_loan and effective_loan_deduction > 0 %}
+              -PKR {{ effective_loan_deduction|floatformat:2|intcomma }}
+            {% else %}
+              PKR 0.00
+            {% endif %}
+          </td>
+          <td style="text-align: center; font-size: 13px; font-weight: 900; background-color: #f8fafc; color: #000000;">
+            PKR {{ final_net_payable|floatformat:2|intcomma }}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 9. Highlighted Disbursement Totals Summary Strip -->
+    <div class="totals-summary-strip">
+      <div>Total Payable (Gross+Dues): &nbsp;&nbsp;PKR {{ total_gross_payable|floatformat:2|intcomma }}</div>
+      <div>Total Deductions: &nbsp;&nbsp;{% if bill.total_all_deductions > 0 %}-PKR {{ bill.total_all_deductions|floatformat:2|intcomma }}{% else %}PKR 0.00{% endif %}</div>
+      <div>Final Net Payable: &nbsp;&nbsp;PKR {{ final_net_payable|floatformat:2|intcomma }}</div>
+      <div>Disbursed / Paid: &nbsp;&nbsp;PKR {{ bill.actual_paid|floatformat:2|intcomma }}</div>
+      <div style="color: {% if final_balance_left > 0 %}#b91c1c{% else %}#15803d{% endif %};">
+        Balance Remaining: &nbsp;&nbsp;PKR {{ final_balance_left|floatformat:2|intcomma }}
+      </div>
+    </div>
+
+    <!-- 9. Payee Name & Bank / Voucher Details -->
+    <div class="payee-box">
+      <div><strong>Payee Name:</strong> {{ bill.teacher.full_name|upper }}</div>
+      <div><strong>Account / Voucher Reference:</strong> SAL-{{ bill.id }}{% if bill.voucher_no %} &nbsp;|&nbsp; Voucher Ref: {{ bill.voucher_no }}{% endif %}</div>
+      <div><strong>Payment Channel:</strong> CASH COUNTER / ACCOUNTS OFFICE {{ school_setting.name|upper }}</div>
+    </div>
+
+    <!-- 10. Leaves & Attendance Strip -->
+    <div class="leaves-strip">
+      <div><strong>Leaves / Attendance:</strong></div>
+      <div><strong>Month Total:</strong> 30 Days</div>
+      <div><strong>Present:</strong> {{ bill.days_present }} Days</div>
+      <div><strong>Late:</strong> {{ bill.days_late }} Days (Cut: PKR {{ bill.late_deductions|floatformat:2|intcomma }})</div>
+      <div><strong>Absent:</strong> {{ bill.absent_days }} Days (Cut: PKR {{ bill.auto_absent_deduction|floatformat:2|intcomma }})</div>
+      {% if bill.bonus > 0 %}
+        <div><strong>Bonus:</strong> +PKR {{ bill.bonus|floatformat:2|intcomma }}</div>
+      {% endif %}
+      <div><strong>Net Earned:</strong> {{ bill.days_present }} Days</div>
+    </div>
+
+    <!-- 11. Permanent Address Block -->
+    <table class="address-grid">
+      <tr>
+        <td style="width: 45%;"><strong>Permanent Address:</strong> {{ bill.teacher.address|default:"Qalagay, Tehsil Kabal, District Swat" }}</td>
+        <td style="width: 30%;"><strong>Domicile:</strong> Khyber Pakhtunkhwa</td>
+        <td style="width: 25%;"><strong>Housing Status:</strong> Self / Non-Official</td>
+      </tr>
+      <tr>
+        <td><strong>City:</strong> SWAT</td>
+        <td colspan="2"><strong>Email / Contact:</strong> {{ bill.teacher.contact_number|default:"---" }}</td>
+      </tr>
+    </table>
+
+    <!-- 12. Signatures Block -->
+    <div class="signatures-block">
+      <div class="sig-col">
+        <div class="sig-bar">Staff Member Signature</div>
+      </div>
+      <div class="sig-col">
+        <div class="sig-bar">Accountant / Bursar</div>
+      </div>
+      <div class="sig-col">
+        <div class="sig-bar">Principal / Headmaster</div>
+      </div>
+    </div>
+
+    <!-- 13. Official Document Footer -->
+    <div class="statement-footer">
+      <div>System generated document in accordance with Government Primary School Regulations (GPS-APPM-2026/v3.0)</div>
+      <div>* All amounts are in Pak Rupees (PKR)</div>
+      <div>* Errors & omissions excepted ({% now "d.m.Y / H:i:s" %})</div>
+    </div>
+
+  </div>
+
+</body>
+</html>

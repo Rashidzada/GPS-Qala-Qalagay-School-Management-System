@@ -1,0 +1,899 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Enter Student Marks Grid (All Subjects){% endblock %}
+
+{% block extra_css %}
+<style>
+  .grid-input {
+    width: 60px;
+    height: 30px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.92rem;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    padding: 2px 2px;
+    transition: all 0.15s ease-in-out;
+  }
+  .grid-input:focus {
+    border-color: #2b6cb0;
+    background-color: #ebf8ff;
+    box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.3);
+    outline: none;
+  }
+  .grid-input.is-absent {
+    background-color: #fed7d7 !important;
+    color: #c53030 !important;
+    border-color: #feb2b2 !important;
+  }
+  .grid-input.is-invalid-max {
+    background-color: #fff5f5 !important;
+    border-color: #e53e3e !important;
+    color: #e53e3e !important;
+  }
+  .grid-input.is-sub-fail {
+    background-color: #fff5f5 !important;
+    border-color: #fc8181 !important;
+    color: #c53030 !important;
+    box-shadow: 0 0 0 1px #fc8181;
+  }
+  .table-grid th, .table-grid td {
+    padding: 5px 6px;
+    vertical-align: middle;
+  }
+  .sticky-col-1 {
+    position: sticky;
+    left: 0;
+    width: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    background-color: #fff;
+    z-index: 2;
+  }
+  .sticky-col-2 {
+    position: sticky;
+    left: 42px;
+    width: 78px;
+    min-width: 78px;
+    max-width: 78px;
+    background-color: #fff;
+    z-index: 2;
+  }
+  .sticky-col-3 {
+    position: sticky;
+    left: 120px;
+    width: 145px;
+    min-width: 145px;
+    max-width: 145px;
+    background-color: #fff;
+    z-index: 2;
+  }
+  .sticky-col-4 {
+    position: sticky;
+    left: 265px;
+    width: 140px;
+    min-width: 140px;
+    max-width: 140px;
+    background-color: #fff;
+    z-index: 2;
+    border-right: 2px solid #2b6cb0 !important;
+    box-shadow: 3px 0 6px -2px rgba(0, 0, 0, 0.18);
+  }
+  thead .sticky-col-1,
+  thead .sticky-col-2,
+  thead .sticky-col-3,
+  thead .sticky-col-4 {
+    background-color: #212529 !important;
+    color: #fff !important;
+    z-index: 3;
+  }
+  .table-hover tbody tr:hover .sticky-col-1,
+  .table-hover tbody tr:hover .sticky-col-2,
+  .table-hover tbody tr:hover .sticky-col-3,
+  .table-hover tbody tr:hover .sticky-col-4 {
+    background-color: #f1f5f9 !important;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Top Header & Action Buttons -->
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <div>
+    <h3 class="fw-bold mb-0 text-dark">
+      <i class="fas fa-edit text-primary me-2"></i> Enter Class Marks Grid
+    </h3>
+    <p class="text-muted small mb-0">
+      Spreadsheet-style live data entry across all subjects simultaneously. Navigate with <kbd>Enter</kbd> / arrow keys.
+    </p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <button type="button" class="btn btn-primary fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#quickAddStudentModal">
+      <i class="fas fa-user-plus me-1"></i> Add Student to Class
+    </button>
+    <a href="{% url 'class_result_sheet' %}?exam_id={{ selected_exam.id }}&class_id={{ selected_class.id }}&section_id={{ selected_section.id|default:'' }}" class="btn btn-outline-primary fw-bold shadow-sm">
+      <i class="fas fa-table me-1"></i> View Result Sheet
+    </a>
+    <a href="{% url 'export_class_template_excel' %}?exam_id={{ selected_exam.id }}&class_id={{ selected_class.id }}&section_id={{ selected_section.id|default:'' }}" class="btn btn-outline-success fw-bold shadow-sm">
+      <i class="fas fa-file-excel me-1"></i> Download Class Excel Template
+    </a>
+    <button type="button" class="btn btn-success fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#bulkImportModal">
+      <i class="fas fa-file-upload me-1"></i> Bulk Import Excel
+    </button>
+    <a href="{% url 'blank_marks_sheet' %}?class_id={{ selected_class.id }}&exam_id={{ selected_exam.id }}&section_id={{ selected_section.id|default:'' }}" target="_blank" class="btn btn-outline-info text-dark fw-bold shadow-sm">
+      <i class="fas fa-file-alt me-1"></i> Blank Marks Sheet
+    </a>
+    <a href="{% url 'bulk_dmc_print' %}?exam_id={{ selected_exam.id }}&class_id={{ selected_class.id }}&section_id={{ selected_section.id|default:'' }}" target="_blank" class="btn btn-dark fw-bold shadow-sm">
+      <i class="fas fa-print me-1"></i> Bulk Print Result Cards (DMC)
+    </a>
+    <button type="button" class="btn btn-outline-danger fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#resetClassModal" title="Clear marks or delete all students in this class">
+      <i class="fas fa-trash-alt me-1"></i> Reset / Clear Class
+    </button>
+  </div>
+</div>
+
+<!-- Filters Bar -->
+<div class="card shadow-sm border-0 mb-3 bg-light">
+  <div class="card-body p-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-4 col-sm-6">
+        <label class="form-label small fw-bold mb-1">Examination Term</label>
+        <select name="exam_id" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for ex in exams %}
+          <option value="{{ ex.id }}" {% if selected_exam.id == ex.id %}selected{% endif %}>
+            {{ ex.name }} ({{ ex.session.name }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-4 col-sm-6">
+        <label class="form-label small fw-bold mb-1">Class</label>
+        <select name="class_id" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for c in classes %}
+          <option value="{{ c.id }}" {% if selected_class.id == c.id %}selected{% endif %}>
+            {{ c.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-3 col-sm-6">
+        <label class="form-label small fw-bold mb-1">Section</label>
+        <select name="section_id" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">All Sections</option>
+          {% for sec in sections %}
+          <option value="{{ sec.id }}" {% if selected_section.id == sec.id %}selected{% endif %}>
+            Section {{ sec.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-1 col-sm-6">
+        <button type="submit" class="btn btn-dark btn-sm w-100 fw-bold">
+          <i class="fas fa-filter"></i> Load
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Passing Criteria & Threshold Configuration Bar -->
+<div class="card shadow-sm border-0 mb-3 bg-white border-start border-4 border-primary">
+  <div class="card-body p-3">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <!-- Left: Title & Explainer -->
+      <div class="d-flex align-items-center gap-2">
+        <div class="bg-primary-subtle text-primary p-2 rounded-circle">
+          <i class="fas fa-sliders-h fa-lg"></i>
+        </div>
+        <div>
+          <div class="d-flex align-items-center gap-2">
+            <h6 class="fw-bold mb-0 text-dark">Passing Criteria & Pass/Fail Rules</h6>
+            <span class="badge bg-success px-2 py-1 fs-7" id="activeCriteriaBadge">{{ passing_percentage|floatformat:0 }}% Pass</span>
+          </div>
+          <span class="text-muted small">
+            Configure passing threshold (30%, 33%, 40%, custom) and pass/fail evaluation rule. Updates live instantly.
+          </span>
+        </div>
+      </div>
+
+      <!-- Center & Right: Controls Form -->
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <form method="post" id="passingCriteriaForm" class="d-flex flex-wrap align-items-center gap-2 mb-0">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_passing_criteria">
+          <input type="hidden" name="exam_id" value="{{ selected_exam.id }}">
+          <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+          <input type="hidden" name="section_id" value="{{ selected_section.id|default:'' }}">
+          <input type="hidden" id="realPassingPct" name="passing_percentage" value="{{ passing_percentage }}">
+
+          <!-- Passing Percentage Dropdown -->
+          <div class="d-flex align-items-center gap-1">
+            <label class="form-label small fw-bold mb-0 text-nowrap text-secondary">
+              <i class="fas fa-percentage text-primary me-1"></i> Passing %:
+            </label>
+            <select id="passingPresetSelect" class="form-select form-select-sm fw-bold border-primary shadow-sm" style="min-width: 155px;">
+              <option value="30" {% if passing_percentage == 30.0 %}selected{% endif %}>30% Pass (GPS / KP Standard)</option>
+              <option value="33" {% if passing_percentage == 33.0 %}selected{% endif %}>33% Pass (Board Rule)</option>
+              <option value="40" {% if passing_percentage == 40.0 %}selected{% endif %}>40% Pass (Higher)</option>
+              <option value="50" {% if passing_percentage == 50.0 %}selected{% endif %}>50% Pass (Strict)</option>
+              <option value="custom" {% if passing_percentage != 30.0 and passing_percentage != 33.0 and passing_percentage != 40.0 and passing_percentage != 50.0 %}selected{% endif %}>Custom %...</option>
+            </select>
+            <!-- Custom Input (shown when Custom is active) -->
+            <div id="customPctWrapper" class="input-group input-group-sm" style="width: 85px; {% if passing_percentage == 30.0 or passing_percentage == 33.0 or passing_percentage == 40.0 or passing_percentage == 50.0 %}display: none;{% endif %}">
+              <input type="number" step="0.5" min="1" max="100" id="passingPctInput" value="{{ passing_percentage }}" class="form-control form-control-sm text-center fw-bold border-primary">
+              <span class="input-group-text bg-light fw-bold">%</span>
+            </div>
+          </div>
+
+          <!-- Evaluation Rule Selector -->
+          <div class="d-flex align-items-center gap-1">
+            <label class="form-label small fw-bold mb-0 text-nowrap text-secondary">
+              <i class="fas fa-balance-scale text-primary me-1"></i> Rule:
+            </label>
+            <select id="passingRuleSelect" name="passing_rule" class="form-select form-select-sm fw-bold border-secondary shadow-sm" style="min-width: 215px;">
+              <option value="overall_only" {% if passing_rule == "overall_only" %}selected{% endif %}>
+                Overall % Only (Total % &ge; Pass %)
+              </option>
+              <option value="subject_and_overall" {% if passing_rule == "subject_and_overall" %}selected{% endif %}>
+                Each Subject + Overall %
+              </option>
+              <option value="subject_only" {% if passing_rule == "subject_only" %}selected{% endif %}>
+                Each Subject Must Pass
+              </option>
+            </select>
+          </div>
+
+          <!-- Save as School Default Button -->
+          <button type="submit" class="btn btn-outline-primary btn-sm fw-bold shadow-sm" title="Save this passing percentage and rule as the permanent school default">
+            <i class="fas fa-save me-1"></i> Save as School Default
+          </button>
+        </form>
+
+        <!-- Sync Subject Passing Marks Form -->
+        <form method="post" class="d-inline mb-0">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="sync_class_subject_pass_marks">
+          <input type="hidden" name="exam_id" value="{{ selected_exam.id }}">
+          <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+          <input type="hidden" name="section_id" value="{{ selected_section.id|default:'' }}">
+          <input type="hidden" id="syncPassingPctVal" name="passing_percentage" value="{{ passing_percentage }}">
+          <button type="submit" class="btn btn-light btn-sm border text-secondary fw-bold shadow-sm" title="Recalculate passing marks for all subjects of {{ selected_class.name }} (e.g. 100 marks -> 30, 50 marks -> 15)">
+            <i class="fas fa-sync-alt text-primary me-1"></i> Update {{ selected_class.name }} Subjects
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Main Marks Grid Form -->
+<form method="post" id="gridMarksForm">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="save_grid_marks">
+  <input type="hidden" name="exam_id" value="{{ selected_exam.id }}">
+  <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+  <input type="hidden" name="section_id" value="{{ selected_section.id|default:'' }}">
+
+  <div class="card shadow-sm border-0 mb-4">
+    <!-- Header Banner with Logo -->
+    <div class="card-header bg-white py-3 border-bottom text-center">
+      <div class="d-flex align-items-center justify-content-center gap-3">
+        {% if school_setting.logo %}
+          <img src="{{ school_setting.logo.url }}" alt="Logo" style="height: 50px; width: 50px; object-fit: contain; border-radius: 50%;">
+        {% else %}
+          <img src="{% static 'dist/img/logo.png' %}" alt="Logo" style="height: 50px; width: 50px; object-fit: contain; border-radius: 50%;">
+        {% endif %}
+        <div>
+          <h6 class="fw-bold text-uppercase text-secondary mb-0" style="letter-spacing: 1px;">
+            {{ school_setting.name|upper }}
+          </h6>
+          <h4 class="fw-bold text-dark mb-0">
+            Enter Marks For Class <span class="text-primary text-decoration-underline">{{ selected_class.name }}</span> {% if selected_section %}(Section {{ selected_section.name }}){% endif %} — <span class="text-primary">{{ selected_exam.name }}</span>
+          </h4>
+        </div>
+      </div>
+      <div class="mt-2 d-flex justify-content-center gap-2">
+        <span class="badge bg-primary px-3 py-1 fs-6">Configured Subjects: {{ class_subjects|length }}</span>
+        <span class="badge bg-info text-dark px-3 py-1 fs-6">Grand Total Max: {{ grand_total_max }}</span>
+        <span class="badge bg-secondary px-3 py-1 fs-6">Active Students: {{ total_students }}</span>
+      </div>
+    </div>
+
+    <!-- Live Instructions Bar -->
+    <div class="bg-light p-2 px-3 border-bottom d-flex justify-content-between align-items-center small">
+      <div>
+        <span class="text-muted"><i class="fas fa-keyboard text-primary me-1"></i> Quick Keys:</span>
+        <kbd>Enter</kbd> / <kbd>↓</kbd> next student &nbsp;|&nbsp;
+        <kbd>Tab</kbd> / <kbd>→</kbd> next subject &nbsp;|&nbsp;
+        <kbd>A</kbd> mark absent &nbsp;|&nbsp;
+        <span class="text-success fw-bold"><i class="fas fa-edit me-1"></i> Adm # editable anytime</span> &nbsp;|&nbsp;
+        <span class="text-danger fw-bold"><i class="fas fa-exclamation-circle me-1"></i> Red</span> if exceeding max.
+      </div>
+      <div>
+        <button type="submit" class="btn btn-primary btn-sm fw-bold px-4 shadow-sm">
+          <i class="fas fa-save me-1"></i> Save All Marks & Adm #s
+        </button>
+      </div>
+    </div>
+
+    <div class="card-body p-0">
+      <div class="table-responsive" style="max-height: 650px; overflow-y: auto;">
+        <table class="table table-bordered table-hover align-middle mb-0 text-center table-grid" id="marksEntryGridTable" style="font-size: 0.88rem;">
+          <thead class="table-dark sticky-top">
+            <tr>
+              <th class="sticky-col-1">#</th>
+              <th class="sticky-col-2" title="Admission Number (editable anytime)">Adm #</th>
+              <th class="text-start sticky-col-3">Student Name</th>
+              <th class="text-start sticky-col-4">Father Name</th>
+              <!-- Dynamic Subject Input Columns -->
+              {% for cs in class_subjects %}
+              <th style="min-width: 68px;" class="bg-primary-subtle text-dark border-dark">
+                <span class="d-block fw-bold">{{ cs.subject.short_name }}</span>
+                <span class="small text-muted fw-normal">Max: {{ cs.total_marks|floatformat:0 }}</span>
+              </th>
+              {% endfor %}
+              <th style="min-width: 68px;" class="bg-info-subtle text-dark fw-bold">Live Total</th>
+              <th style="min-width: 60px;">Live %</th>
+              <th style="min-width: 52px;">Grade</th>
+              <th style="min-width: 68px;">Status</th>
+              <th style="min-width: 46px;" class="text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in student_grid_rows %}
+            <tr id="row-{{ row.student.id }}" data-student-id="{{ row.student.id }}">
+              <td class="fw-bold text-muted sticky-col-1">{{ row.sr_no }}</td>
+              <td class="sticky-col-2 p-1">
+                <input type="text"
+                       name="adm_{{ row.student.id }}"
+                       value="{{ row.student.admission_no }}"
+                       class="form-control form-control-sm text-center fw-bold px-1 adm-input"
+                       style="width: 70px; height: 30px; font-family: monospace; font-size: 0.88rem;"
+                       title="Edit admission number anytime"
+                       autocomplete="off">
+              </td>
+              <td class="text-start fw-bold text-dark sticky-col-3 text-truncate" title="{{ row.student.full_name }}" style="max-width: 145px;">
+                {{ row.student.full_name }}
+              </td>
+              <td class="text-start text-muted sticky-col-4 text-truncate" title="{{ row.student.father_name }}" style="max-width: 140px;">
+                {{ row.student.father_name }}
+              </td>
+              <!-- Subject Inputs -->
+              {% for sub in row.subjects %}
+              <td class="p-1">
+                <input type="text"
+                       name="mark_{{ row.student.id }}_{{ sub.class_subject.subject.id }}"
+                       value="{{ sub.score }}"
+                       class="grid-input {% if sub.is_absent %}is-absent{% endif %}"
+                       data-row="{{ row.sr_no }}"
+                       data-col="{{ forloop.counter }}"
+                       data-student-id="{{ row.student.id }}"
+                       data-subject-id="{{ sub.class_subject.subject.id }}"
+                       data-max="{{ sub.max_marks }}"
+                       data-pass="{{ sub.passing_marks }}"
+                       autocomplete="off"
+                       placeholder="-">
+              </td>
+              {% endfor %}
+              <!-- Live Total -->
+              <td class="fw-bold fs-6 text-primary row-live-total" id="live-total-{{ row.student.id }}">
+                {{ row.row_total }}
+              </td>
+              <!-- Live % -->
+              <td class="fw-bold row-live-pct" id="live-pct-{{ row.student.id }}">
+                {% if row.row_pct is not None %}{{ row.row_pct }}%{% else %}-{% endif %}
+              </td>
+              <!-- Live Grade -->
+              <td class="fw-bold row-live-grade" id="live-grade-{{ row.student.id }}">
+                {{ row.row_grade }}
+              </td>
+              <!-- Live Status -->
+              <td class="fw-bold row-live-status text-center" id="live-status-{{ row.student.id }}">
+                {% if row.row_status == "Pass" %}
+                  <span class="badge bg-success-subtle text-success border border-success px-2 py-1"><i class="fas fa-check-circle me-1"></i>Pass</span>
+                {% elif row.row_status == "Fail" %}
+                  <span class="badge bg-danger-subtle text-danger border border-danger px-2 py-1"><i class="fas fa-times-circle me-1"></i>Fail</span>
+                {% else %}
+                  <span class="badge bg-light text-muted border px-2 py-1">-</span>
+                {% endif %}
+              </td>
+              <!-- Action: Delete student from class -->
+              <td class="text-center p-1">
+                <button type="button"
+                        class="btn btn-sm btn-outline-danger py-0 px-1 btn-delete-grid-student"
+                        title="Delete this student from {{ selected_class.name }}"
+                        data-bs-toggle="modal"
+                        data-bs-target="#deleteGridStudentModal"
+                        data-id="{{ row.student.id }}"
+                        data-name="{{ row.student.full_name }}"
+                        data-adm="{{ row.student.admission_no }}">
+                  <i class="fas fa-times"></i>
+                </button>
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="{{ class_subjects|length|add:9 }}" class="text-center py-5 text-muted">
+                <i class="fas fa-users fa-3x mb-3 opacity-50 d-block"></i>
+                <h5>No active students found in {{ selected_class.name }}</h5>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sticky Bottom Save Footer -->
+    <div class="card-footer bg-white d-flex justify-content-between align-items-center py-3 border-top sticky-bottom">
+      <div class="text-muted small">
+        <span class="fw-bold text-dark">Grand Total Maximum: {{ grand_total_max }}</span> &nbsp;|&nbsp;
+        <span>All changes will be updated across Class Result Sheets, Award Lists, and Student DMCs simultaneously.</span>
+      </div>
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-lg fw-bold px-5 shadow">
+          <i class="fas fa-save me-1"></i> Save All Marks & Admission #s
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
+
+<!-- MODAL: Bulk Import Multi-Subject Excel File -->
+<div class="modal fade" id="bulkImportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'import_class_result_excel' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="exam_id" value="{{ selected_exam.id }}">
+        <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+        <input type="hidden" name="next" value="{% url 'class_marks_entry_grid' %}?exam_id={{ selected_exam.id }}&class_id={{ selected_class.id }}&section_id={{ selected_section.id|default:'' }}">
+
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title fw-bold">
+            <i class="fas fa-file-excel me-2"></i> Bulk Import Excel for {{ selected_class.name }}
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body p-4">
+          <div class="alert alert-info small mb-3">
+            <i class="fas fa-info-circle me-1"></i> <strong>Class Isolation Guaranteed:</strong> Uploading here will enroll and update students <strong>exclusively in {{ selected_class.name }}</strong>. Existing students in other classes will never be overwritten or moved.
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-bold">Select Completed Excel File (.xlsx)</label>
+            <input type="file" name="excel_file" class="form-control" accept=".xlsx, .xls" required>
+            <small class="text-muted d-block mt-1">
+              Supports both:
+              <br>1) <strong>Full marks sheets:</strong> Enter marks for all subjects.
+              <br>2) <strong>Student roster lists:</strong> Upload student names & Admission Numbers (e.g., 800 series for Class 8, 900 series for Class 9) to populate this class.
+            </small>
+          </div>
+
+          <div class="card bg-light border-0 p-3 mb-2">
+            <h6 class="fw-bold mb-1 small text-dark"><i class="fas fa-download me-1 text-success"></i> Need the class template?</h6>
+            <p class="small text-muted mb-2">Download the official pre-formatted Excel template for {{ selected_class.name }}:</p>
+            <a href="{% url 'export_class_template_excel' %}?exam_id={{ selected_exam.id }}&class_id={{ selected_class.id }}&section_id={{ selected_section.id|default:'' }}" class="btn btn-sm btn-outline-success fw-bold">
+              Download {{ selected_class.name }} Excel Template (.xlsx)
+            </a>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success fw-bold px-4">
+            <i class="fas fa-upload me-1"></i> Upload & Import
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Quick Add Single Student Directly to this Class -->
+<div class="modal fade" id="quickAddStudentModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'class_marks_entry_grid' %}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="quick_add_student">
+        <input type="hidden" name="exam_id" value="{{ selected_exam.id }}">
+        <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+        <input type="hidden" name="section_id" value="{{ selected_section.id|default:'' }}">
+
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title fw-bold">
+            <i class="fas fa-user-plus me-2"></i> Add Student to {{ selected_class.name }}
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body p-4">
+          <p class="small text-muted mb-3">
+            Quickly add a candidate directly to <strong>{{ selected_class.name }}</strong> with custom admission/serial number. The student will appear in the marks grid immediately.
+          </p>
+
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Admission / Serial # (e.g. 801, 802 for Class 8, 901 for Class 9)</label>
+            <input type="text" name="admission_no" class="form-control" placeholder="e.g. 801 or 901">
+            <small class="text-muted">Leave blank to auto-generate.</small>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Student Full Name *</label>
+            <input type="text" name="full_name" class="form-control" placeholder="Candidate's full name" required>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Father's Name (Optional)</label>
+            <input type="text" name="father_name" class="form-control" placeholder="Father or Guardian's name (can add later)">
+          </div>
+
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small fw-bold">Gender</label>
+              <select name="gender" class="form-select">
+                <option value="Male" selected>Male</option>
+                <option value="Female">Female</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-bold">Section</label>
+              <select name="section_id" class="form-select">
+                {% for sec in sections %}
+                <option value="{{ sec.id }}" {% if selected_section.id == sec.id %}selected{% endif %}>
+                  Section {{ sec.name }}
+                </option>
+                {% empty %}
+                <option value="">Section A</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary fw-bold px-4">
+            <i class="fas fa-check me-1"></i> Save & Show in Grid
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Keyboard Navigation & Live Calculation Script -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const grandTotalMax = {{ grand_total_max|default:1 }};
+  const inputs = document.querySelectorAll('.grid-input');
+
+  const presetSelect = document.getElementById('passingPresetSelect');
+  const customInput = document.getElementById('passingPctInput');
+  const customWrapper = document.getElementById('customPctWrapper');
+  const ruleSelect = document.getElementById('passingRuleSelect');
+  const realPassingPct = document.getElementById('realPassingPct');
+  const syncPassingPctVal = document.getElementById('syncPassingPctVal');
+  const activeCriteriaBadge = document.getElementById('activeCriteriaBadge');
+
+  function getActivePassingPct() {
+    if (!presetSelect) return {{ passing_percentage|default:30.0 }};
+    const val = presetSelect.value;
+    if (val === 'custom' && customInput) {
+      const num = parseFloat(customInput.value);
+      return (!isNaN(num) && num > 0) ? num : 30.0;
+    }
+    return parseFloat(val) || 30.0;
+  }
+
+  function getActivePassingRule() {
+    return ruleSelect ? ruleSelect.value : 'overall_only';
+  }
+
+  function handleCriteriaChange() {
+    if (presetSelect && customWrapper) {
+      if (presetSelect.value === 'custom') {
+        customWrapper.style.display = 'inline-flex';
+      } else {
+        customWrapper.style.display = 'none';
+      }
+    }
+    const currentPassPct = getActivePassingPct();
+    if (realPassingPct) realPassingPct.value = currentPassPct;
+    if (syncPassingPctVal) syncPassingPctVal.value = currentPassPct;
+    if (activeCriteriaBadge) {
+      activeCriteriaBadge.textContent = currentPassPct + '% Pass';
+    }
+
+    // Recalculate all student rows
+    document.querySelectorAll('tr[data-student-id]').forEach(function(row) {
+      updateRowLiveStats(row, grandTotalMax);
+    });
+  }
+
+  if (presetSelect) presetSelect.addEventListener('change', handleCriteriaChange);
+  if (customInput) customInput.addEventListener('input', handleCriteriaChange);
+  if (ruleSelect) ruleSelect.addEventListener('change', handleCriteriaChange);
+
+  // Recalculate row live totals on startup
+  document.querySelectorAll('tr[data-student-id]').forEach(function(row) {
+    updateRowLiveStats(row, grandTotalMax);
+  });
+
+  // Handle Input Changes & Keyboard Navigation
+  inputs.forEach(function(input) {
+    input.addEventListener('input', function() {
+      const val = this.value.trim().toUpperCase();
+      const max = parseFloat(this.dataset.max) || 100;
+
+      // Handle absent
+      if (val === 'A') {
+        this.classList.add('is-absent');
+        this.classList.remove('is-invalid-max');
+      } else {
+        this.classList.remove('is-absent');
+        const num = parseFloat(val);
+        if (!isNaN(num) && num > max) {
+          this.classList.add('is-invalid-max');
+        } else {
+          this.classList.remove('is-invalid-max');
+        }
+      }
+
+      const row = this.closest('tr');
+      updateRowLiveStats(row, grandTotalMax);
+    });
+
+    // Keyboard Navigation
+    input.addEventListener('keydown', function(e) {
+      const curRow = parseInt(this.dataset.row);
+      const curCol = parseInt(this.dataset.col);
+
+      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        // Move to next student in same subject column
+        const nextInput = document.querySelector(`.grid-input[data-row="${curRow + 1}"][data-col="${curCol}"]`);
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select();
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        // Move to previous student in same subject column
+        const prevInput = document.querySelector(`.grid-input[data-row="${curRow - 1}"][data-col="${curCol}"]`);
+        if (prevInput) {
+          prevInput.focus();
+          prevInput.select();
+        }
+      } else if (e.key === 'ArrowRight' && (this.selectionEnd === this.value.length || this.value === '')) {
+        // Move to next subject column for this student
+        const rightInput = document.querySelector(`.grid-input[data-row="${curRow}"][data-col="${curCol + 1}"]`);
+        if (rightInput) {
+          e.preventDefault();
+          rightInput.focus();
+          rightInput.select();
+        }
+      } else if (e.key === 'ArrowLeft' && (this.selectionStart === 0 || this.value === '')) {
+        // Move to previous subject column for this student
+        const leftInput = document.querySelector(`.grid-input[data-row="${curRow}"][data-col="${curCol - 1}"]`);
+        if (leftInput) {
+          e.preventDefault();
+          leftInput.focus();
+          leftInput.select();
+        }
+      }
+    });
+  });
+
+  function updateRowLiveStats(row, totalMax) {
+    const studentId = row.dataset.studentId;
+    const rowInputs = row.querySelectorAll('.grid-input');
+    const passPct = getActivePassingPct();
+    const passRule = getActivePassingRule();
+    let totalObt = 0;
+    let hasMarks = false;
+    let hasSubFail = false;
+    let allAbsent = true;
+
+    rowInputs.forEach(function(inp) {
+      const v = inp.value.trim().toUpperCase();
+      const max = parseFloat(inp.dataset.max) || 100;
+      // Per-subject pass mark: using data-pass or dynamic threshold
+      const passMark = (inp.dataset.pass && parseFloat(inp.dataset.pass) > 0)
+                       ? parseFloat(inp.dataset.pass)
+                       : (max * (passPct / 100.0));
+
+      if (v === 'A') {
+        hasMarks = true;
+        hasSubFail = true;
+        inp.classList.remove('is-sub-fail');
+      } else if (v !== '') {
+        const num = parseFloat(v);
+        if (!isNaN(num)) {
+          totalObt += num;
+          hasMarks = true;
+          allAbsent = false;
+          if (num < passMark) {
+            hasSubFail = true;
+            inp.classList.add('is-sub-fail');
+          } else {
+            inp.classList.remove('is-sub-fail');
+          }
+        }
+      } else {
+        inp.classList.remove('is-sub-fail');
+      }
+    });
+
+    const totalEl = document.getElementById('live-total-' + studentId);
+    const pctEl = document.getElementById('live-pct-' + studentId);
+    const gradeEl = document.getElementById('live-grade-' + studentId);
+    const statusEl = document.getElementById('live-status-' + studentId);
+
+    if (hasMarks && !allAbsent && totalMax > 0) {
+      totalEl.textContent = Math.round(totalObt * 10) / 10;
+      const pct = Math.round((totalObt / totalMax) * 1000) / 10;
+      pctEl.textContent = pct + '%';
+
+      // Pass/Fail evaluation based on selected rule
+      let isPass = false;
+      if (passRule === 'overall_only') {
+        isPass = (pct >= passPct);
+      } else if (passRule === 'subject_only') {
+        isPass = !hasSubFail;
+      } else { // subject_and_overall
+        isPass = (!hasSubFail && pct >= passPct);
+      }
+
+      // Compute grade
+      let grade = 'Fail';
+      if (pct >= 80) grade = 'A+';
+      else if (pct >= 70) grade = 'A';
+      else if (pct >= 60) grade = 'B';
+      else if (pct >= 50) grade = 'C';
+      else if (pct >= 40) grade = 'D';
+      else if (pct >= passPct) grade = 'E';
+      else grade = 'Fail';
+
+      gradeEl.textContent = grade;
+      if (grade === 'A+' || grade === 'A') {
+        gradeEl.className = 'fw-bold text-success';
+      } else if (grade === 'Fail') {
+        gradeEl.className = 'fw-bold text-danger';
+      } else if (grade === 'B' || grade === 'C') {
+        gradeEl.className = 'fw-bold text-primary';
+      } else {
+        gradeEl.className = 'fw-bold text-secondary';
+      }
+
+      // Status Badge
+      if (statusEl) {
+        if (isPass) {
+          statusEl.innerHTML = '<span class="badge bg-success-subtle text-success border border-success px-2 py-1"><i class="fas fa-check-circle me-1"></i>Pass</span>';
+        } else {
+          statusEl.innerHTML = '<span class="badge bg-danger-subtle text-danger border border-danger px-2 py-1"><i class="fas fa-times-circle me-1"></i>Fail</span>';
+        }
+      }
+    } else {
+      totalEl.textContent = hasMarks ? (allAbsent ? 'A' : Math.round(totalObt)) : '-';
+      pctEl.textContent = '-';
+      gradeEl.textContent = '-';
+      gradeEl.className = 'fw-bold text-muted';
+      if (statusEl) {
+        statusEl.innerHTML = '<span class="badge bg-light text-muted border px-2 py-1">-</span>';
+      }
+    }
+  }
+
+  // Handle single student delete from grid
+  var gridDeleteButtons = document.querySelectorAll('.btn-delete-grid-student');
+  var gridDeleteForm = document.getElementById('deleteGridStudentForm');
+  var gridDeleteName = document.getElementById('gridDeleteStudentName');
+  var gridDeleteAdm = document.getElementById('gridDeleteStudentAdm');
+
+  gridDeleteButtons.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var sId = btn.getAttribute('data-id');
+      var sName = btn.getAttribute('data-name');
+      var sAdm = btn.getAttribute('data-adm');
+
+      if (gridDeleteForm) {
+        gridDeleteForm.action = '/students/' + sId + '/delete/';
+      }
+      if (gridDeleteName) gridDeleteName.innerText = sName;
+      if (gridDeleteAdm) gridDeleteAdm.innerText = sAdm;
+    });
+  });
+});
+</script>
+
+<!-- Modal: Reset / Clear Class Data -->
+<div class="modal fade" id="resetClassModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'class_marks_reset' %}">
+        {% csrf_token %}
+        <input type="hidden" name="exam_id" value="{{ selected_exam.id }}">
+        <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title">
+            <i class="fas fa-trash-alt me-2"></i> Reset / Clear Class Data
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-3">
+            Choose how you would like to reset <strong>{{ selected_class.name }}</strong> ({{ selected_exam.name }}):
+          </p>
+          <div class="form-check p-3 border rounded mb-2 bg-light">
+            <input class="form-check-input" type="radio" name="reset_mode" id="resetModeMarks" value="marks_only" checked>
+            <label class="form-check-label fw-bold text-dark" for="resetModeMarks">
+              1. Clear Exam Marks Only
+            </label>
+            <div class="small text-muted ps-1">
+              Deletes only the recorded exam marks for this class in this exam. Student roster and admission numbers remain unchanged.
+            </div>
+          </div>
+          <div class="form-check p-3 border rounded border-danger bg-danger-subtle">
+            <input class="form-check-input" type="radio" name="reset_mode" id="resetModeAll" value="all_students">
+            <label class="form-check-label fw-bold text-danger" for="resetModeAll">
+              2. Delete All Students in this Class
+            </label>
+            <div class="small text-dark ps-1">
+              Completely deletes all students enrolled in {{ selected_class.name }} along with their marks and records. Perfect for undoing accidental wrong Excel uploads.
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger fw-bold shadow-sm">
+            <i class="fas fa-trash-alt me-1"></i> Proceed with Reset
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Delete Single Student from Grid -->
+<div class="modal fade" id="deleteGridStudentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="deleteGridStudentForm" method="post" action="">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title">
+            <i class="fas fa-user-times me-2"></i> Delete Student from Class
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2">Are you sure you want to delete this student from <strong>{{ selected_class.name }}</strong>?</p>
+          <div class="p-3 bg-light rounded border mb-3">
+            <h5 class="fw-bold text-dark mb-1" id="gridDeleteStudentName">-</h5>
+            <div class="text-muted small">Admission #: <strong id="gridDeleteStudentAdm" class="text-primary">-</strong></div>
+          </div>
+          <div class="alert alert-warning small mb-0">
+            <i class="fas fa-exclamation-triangle me-1"></i>
+            This permanently deletes the student and all their exam marks and ledgers.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger fw-bold shadow-sm">
+            <i class="fas fa-trash-alt me-1"></i> Yes, Permanently Delete
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

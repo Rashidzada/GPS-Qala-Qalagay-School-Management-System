@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Monthly Salary Bills{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h3 class="fw-bold mb-0 text-dark"><i class="fas fa-file-invoice-dollar me-2 text-success"></i> Monthly Salary Bills</h3>
+    <p class="text-muted small mb-0">View, edit, and print monthly salary bills for teachers and staff.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{% url 'export_salary_bills_excel' %}?{{ request.GET.urlencode }}" class="btn btn-outline-success" title="Export current filtered salary bills to Excel">
+      <i class="fas fa-file-excel me-1"></i> Export Excel
+    </a>
+    <a href="{% url 'generate_salary_bills' %}" class="btn btn-success">
+      <i class="fas fa-cogs me-1"></i> Generate Salary Bills
+    </a>
+  </div>
+</div>
+
+<!-- Month & Year Filter Bar -->
+<div class="card mb-4 shadow-sm border-0 bg-light">
+  <div class="card-body p-3">
+    <form method="get" class="row g-2 align-items-center">
+      <div class="col-md-5">
+        <select name="month" class="form-select">
+          <option value="">All Months</option>
+          {% for m, mname in months %}
+            <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>{{ mname }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-5">
+        <input type="number" name="year" value="{{ selected_year }}" class="form-control" placeholder="Enter Year (e.g. 2026)">
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-success flex-grow-1"><i class="fas fa-filter me-1"></i> Filter</button>
+        <a href="{% url 'salary_bill_list' %}" class="btn btn-outline-secondary"><i class="fas fa-sync-alt"></i></a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Financial Rollup Strip -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card bg-light border p-3">
+      <small class="text-muted text-uppercase fw-bold">Total Net Payroll</small>
+      <h4 class="fw-bold mb-0 text-dark">PKR {{ total_net|floatformat:2|intcomma }}</h4>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card bg-light border p-3">
+      <small class="text-muted text-uppercase fw-bold">Total Disbursed / Paid</small>
+      <h4 class="fw-bold mb-0 text-success">PKR {{ total_paid|floatformat:2|intcomma }}</h4>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card bg-light border p-3">
+      <small class="text-muted text-uppercase fw-bold">Total Salary Dues Left (Unpaid)</small>
+      <h4 class="fw-bold mb-0 {% if total_balance_left > 0 %}text-danger{% else %}text-success{% endif %}">PKR {{ total_balance_left|floatformat:2|intcomma }}</h4>
+    </div>
+  </div>
+</div>
+
+<!-- Bills Table -->
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Staff ID</th>
+          <th>Faculty Member</th>
+          <th>Designation</th>
+          <th>Month/Year</th>
+          <th>Gross Pay</th>
+          <th>Deductions</th>
+          <th>Net Payable</th>
+          <th>Paid Amount</th>
+          <th>Balance Left</th>
+          <th>Status</th>
+          <th>Payment Date</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in bills %}
+          <tr>
+            <td class="fw-bold text-success">{{ b.teacher.teacher_id }}</td>
+            <td class="fw-bold">{{ b.teacher.full_name }}</td>
+            <td><span class="badge bg-light text-dark border">{{ b.teacher.designation }}</span></td>
+            <td class="fw-bold text-nowrap">{{ b.month_name }} {{ b.year }}</td>
+            <td>PKR {{ b.gross_pay|floatformat:0|intcomma }}</td>
+            <td class="text-danger">
+              {% if b.deductions > 0 %}
+                -{{ b.deductions|floatformat:0|intcomma }}
+                {% if b.absent_days > 0 %}
+                  <span class="badge bg-light text-danger border" title="{{ b.absent_days }} absent days">({{ b.absent_days }}d absent)</span>
+                {% endif %}
+              {% else %}
+                0
+              {% endif %}
+            </td>
+            <td class="fw-bold text-primary">PKR {{ b.net_payable|floatformat:0|intcomma }}</td>
+            <td class="fw-bold text-success">PKR {{ b.actual_paid|floatformat:0|intcomma }}</td>
+            <td class="fw-bold {% if b.balance_left > 0 %}text-danger{% else %}text-muted{% endif %}">
+              {% if b.balance_left > 0 %}
+                PKR {{ b.balance_left|floatformat:0|intcomma }}
+              {% else %}
+                <span class="text-success"><i class="fas fa-check-circle me-1"></i>0</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if b.payment_status == "Cleared" %}
+                <span class="badge bg-success">Cleared</span>
+              {% elif b.payment_status == "Partial" %}
+                <span class="badge bg-warning text-dark">Partial</span>
+              {% else %}
+                <span class="badge bg-danger">Pending</span>
+              {% endif %}
+            </td>
+            <td>{{ b.payment_date|date:"d/m/Y"|default:"-" }}</td>
+            <td class="text-end">
+              <div class="btn-group btn-group-sm">
+                <a href="{% url 'salary_bill_detail' b.pk %}" class="btn btn-outline-secondary" title="Print Pay Slip" target="_blank">
+                  <i class="fas fa-print"></i>
+                </a>
+                <a href="{{ b.whatsapp_url }}" class="btn btn-outline-success" title="Send WhatsApp Salary Slip to {{ b.teacher.full_name }} ({{ b.teacher.contact_number }})" target="_blank">
+                  <i class="fab fa-whatsapp"></i>
+                </a>
+                <a href="{% url 'salary_bill_update' b.pk %}" class="btn btn-outline-primary" title="Edit / Pay / Deduct">
+                  <i class="fas fa-edit"></i>
+                </a>
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="12" class="text-center py-5 text-muted">
+              No salary bills found for this period. Click <strong>Generate Salary Bills</strong> to batch create them.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

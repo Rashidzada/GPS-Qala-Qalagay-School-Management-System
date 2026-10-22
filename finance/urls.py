@@ -1,0 +1,21 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path("register/", views.fee_register, name="fee_register"),
+    path("register/export-excel/", views.export_fee_register_excel, name="export_fee_register_excel"),
+    path("collect/<int:student_id>/", views.collect_fee, name="collect_fee"),
+    path("family-payment/<int:household_id>/", views.family_payment, name="family_payment"),
+    path("adjust/<int:student_id>/", views.fee_adjust, name="fee_adjust"),
+    path("receipt/<int:pk>/", views.fee_receipt, name="fee_receipt"),
+    path("receipt/<int:pk>/void/", views.void_fee_receipt, name="void_fee_receipt"),
+    path("month/<int:entry_id>/reset/", views.reset_month_fee, name="reset_month_fee"),
+    path("ledger/<int:student_id>/reset/", views.reset_student_ledger, name="reset_student_ledger"),
+    path("family-dues/", views.family_dues, name="family_dues"),
+    path("class-summary/", views.class_fee_summary, name="class_fee_summary"),
+    path("defaulters/", views.defaulters_list, name="defaulters_list"),
+    path("defaulters/export-excel/", views.export_defaulters_excel, name="export_defaulters_excel"),
+    path("student-dues-notice/<int:student_id>/", views.student_dues_notice, name="student_dues_notice"),
+    path("family-dues-notice/<int:household_id>/", views.family_dues_notice, name="family_dues_notice"),
+    path("bulk-dues-notices/", views.bulk_student_dues_notices, name="bulk_student_dues_notices"),
+]

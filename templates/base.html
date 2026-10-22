@@ -1,0 +1,840 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ school_setting.name|default:"School Management System" }}{% endblock %} | {{ school_setting.short_name|default:"Portal" }}</title>
+  
+  <link rel="icon" type="image/png" href="{% if school_setting.logo %}{{ school_setting.logo.url }}{% else %}{% static 'dist/img/favicon.png' %}{% endif %}">
+  <link rel="shortcut icon" href="{% if school_setting.logo %}{{ school_setting.logo.url }}{% else %}{% static 'dist/img/favicon.ico' %}{% endif %}">
+
+  <!-- Bootstrap 5 CSS (Offline) -->
+  <link rel="stylesheet" href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}">
+  <!-- Font Awesome 6 (Offline) -->
+  <link rel="stylesheet" href="{% static 'vendor/fontawesome/css/all.min.css' %}">
+  
+  <style>
+    :root {
+      --sidebar-width: 260px;
+      --primary-color: #1a365d;
+      --secondary-color: #2b6cb0;
+      --accent-color: #d69e2e;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background-color: #f7fafc;
+      color: #2d3748;
+    }
+    #wrapper {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      max-height: 100vh;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: var(--sidebar-width);
+      min-width: var(--sidebar-width);
+      max-width: var(--sidebar-width);
+      height: 100vh;
+      max-height: 100vh;
+      background: linear-gradient(180deg, #1a365d 0%, #0f2442 100%);
+      color: #e2e8f0;
+      transition: margin-left 0.3s ease;
+      z-index: 1000;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+      flex-shrink: 0;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    #sidebar.collapsed {
+      margin-left: calc(-1 * var(--sidebar-width));
+    }
+    .sidebar-brand {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #1a365d;
+      padding: 1.15rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .sidebar-brand img {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #fff;
+      padding: 2px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .sidebar-brand-text {
+      font-size: 0.95rem;
+      font-weight: 700;
+      line-height: 1.2;
+      color: #fff;
+    }
+    .sidebar-section-title {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 1.1px;
+      font-weight: 800;
+      padding: 0.42rem 0.85rem;
+      margin: 0.95rem 0.65rem 0.35rem 0.65rem;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #e2e8f0;
+      background: rgba(255, 255, 255, 0.08);
+      border-left: 3.5px solid #38bdf8;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    }
+    .sidebar-section-title i {
+      font-size: 0.82rem;
+    }
+    .sidebar-section-core {
+      background: rgba(56, 189, 248, 0.14);
+      border-left-color: #38bdf8;
+      color: #7dd3fc;
+    }
+    .sidebar-section-students {
+      background: rgba(52, 211, 153, 0.14);
+      border-left-color: #34d399;
+      color: #6ee7b7;
+    }
+    .sidebar-section-attendance {
+      background: rgba(251, 191, 36, 0.16);
+      border-left-color: #fbbf24;
+      color: #fde047;
+    }
+    .sidebar-section-exams {
+      background: rgba(167, 139, 250, 0.14);
+      border-left-color: #a78bfa;
+      color: #c4b5fd;
+    }
+    .sidebar-section-teachers {
+      background: rgba(244, 63, 94, 0.14);
+      border-left-color: #f43f5e;
+      color: #fda4af;
+    }
+    .sidebar-section-finance {
+      background: rgba(45, 212, 191, 0.14);
+      border-left-color: #2dd4bf;
+      color: #5eead4;
+    }
+    .sidebar-section-admin {
+      background: rgba(148, 163, 184, 0.16);
+      border-left-color: #94a3b8;
+      color: #f1f5f9;
+    }
+    .sidebar-nav {
+      list-style: none;
+      padding: 0.5rem 0;
+      margin: 0;
+    }
+    .sidebar-nav .nav-item {
+      margin: 2px 8px;
+    }
+    .sidebar-nav .nav-link {
+      color: #cbd5e0;
+      padding: 0.55rem 0.85rem;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.88rem;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+    .sidebar-nav .nav-link i {
+      width: 20px;
+      text-align: center;
+      font-size: 0.95rem;
+    }
+    .sidebar-nav .nav-link:hover, .sidebar-nav .nav-link.active {
+      color: #fff;
+      background: rgba(255,255,255,0.12);
+    }
+    #content-wrapper {
+      flex: 1;
+      height: 100vh;
+      max-height: 100vh;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: auto;
+      background-color: #f7fafc;
+      position: relative;
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 990;
+      background: #fff;
+      height: 62px;
+      min-height: 62px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1.5rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+      flex-shrink: 0;
+    }
+    .main-content {
+      flex: 1 0 auto;
+      padding: 1.5rem;
+      min-width: 0;
+    }
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      background-color: #fff;
+    }
+    .card-header {
+      background-color: #fff;
+      border-bottom: 1px solid #edf2f7;
+      font-weight: 600;
+      padding: 0.9rem 1.25rem;
+    }
+    .badge-session {
+      background: #ebf8ff;
+      color: #2b6cb0;
+      border: 1px solid #bee3f8;
+      font-weight: 600;
+      padding: 0.35rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.82rem;
+    }
+
+    /* Custom Modern Scrollbars for Left Sidebar */
+    #sidebar::-webkit-scrollbar {
+      width: 6px;
+    }
+    #sidebar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    #sidebar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 4px;
+    }
+    #sidebar::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.45);
+    }
+    #sidebar {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.25) rgba(0, 0, 0, 0.2);
+    }
+
+    /* Custom Modern Scrollbars for Right Content Area */
+    #content-wrapper::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    #content-wrapper::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    #content-wrapper::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    #content-wrapper::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    #content-wrapper {
+      scrollbar-width: thin;
+      scrollbar-color: #cbd5e1 #f1f5f9;
+    }
+
+    /* Print styling */
+    @media print {
+      html, body {
+        height: auto !important;
+        overflow: visible !important;
+        background: #fff !important;
+      }
+      #sidebar, .topbar, .no-print, .btn, .pagination, .modal {
+        display: none !important;
+      }
+      #wrapper {
+        display: block !important;
+        height: auto !important;
+        width: 100% !important;
+        overflow: visible !important;
+      }
+      #content-wrapper {
+        display: block !important;
+        height: auto !important;
+        width: 100% !important;
+        overflow: visible !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .main-content {
+        padding: 0 !important;
+      }
+      body {
+        color: #000 !important;
+        font-size: 12pt;
+      }
+      .card {
+        border: none !important;
+        box-shadow: none !important;
+      }
+      .print-header {
+        display: block !important;
+        text-align: center;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #333;
+        padding-bottom: 15px;
+      }
+    }
+    @media screen {
+      .print-header {
+        display: none;
+      }
+    }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <div id="wrapper">
+    <!-- Sidebar -->
+    <nav id="sidebar">
+      <a href="{% url 'dashboard' %}" class="sidebar-brand">
+        {% if school_setting.logo %}
+          <img src="{{ school_setting.logo.url }}" alt="Logo">
+        {% else %}
+          <img src="{% static 'dist/img/logo.png' %}" alt="Logo">
+        {% endif %}
+        <div class="sidebar-brand-text">
+          {{ school_setting.name|default:"School Management" }}
+          <div style="font-size: 0.7rem; font-weight: 400; opacity: 0.85;">{{ school_setting.tagline|default:"Management Portal" }}</div>
+        </div>
+      </a>
+
+      <div class="sidebar-section-title sidebar-section-core"><i class="fas fa-layer-group me-1"></i> Core Management</div>
+      <ul class="sidebar-nav">
+        <li class="nav-item">
+          <a href="{% url 'dashboard' %}" class="nav-link">
+            <i class="fas fa-tachometer-alt"></i> Dashboard
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-section-title sidebar-section-students"><i class="fas fa-user-graduate me-1"></i> Students & Admissions</div>
+      <ul class="sidebar-nav">
+        <li class="nav-item">
+          <a href="{% url 'student_list' %}" class="nav-link">
+            <i class="fas fa-user-graduate"></i> Student Directory
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'student_create' %}" class="nav-link">
+            <i class="fas fa-user-plus"></i> New Admission
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'blank_admission_form' %}" target="_blank" class="nav-link">
+            <i class="fas fa-file-invoice"></i> Blank Admission Form
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'dob_certificate_general' %}" target="_blank" class="nav-link">
+            <i class="fas fa-birthday-cake"></i> D.O.B Certificate
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'admission_register' %}" class="nav-link">
+            <i class="fas fa-book"></i> Admission Register
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'withdrawal_register' %}" class="nav-link">
+            <i class="fas fa-user-times"></i> Withdrawal Register
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'bulk_promote' %}" class="nav-link">
+            <i class="fas fa-level-up-alt"></i> Bulk Class Promotion
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'family_list' %}" class="nav-link">
+            <i class="fas fa-users"></i> Families & Households
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-section-title sidebar-section-attendance"><i class="fas fa-qrcode me-1"></i> Student Attendance & QR</div>
+      <ul class="sidebar-nav">
+        <li class="nav-item">
+          <a href="{% url 'student_qr_attendance_scan' %}" class="nav-link">
+            <i class="fas fa-qrcode text-warning"></i> Student QR Scanner
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'student_daily_attendance' %}" class="nav-link">
+            <i class="fas fa-calendar-check text-info"></i> Daily Class Attendance
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'student_monthly_attendance_sheet' %}" class="nav-link">
+            <i class="fas fa-calendar-alt"></i> Monthly Attendance (31-Day)
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'student_yearly_attendance_sheet' %}" class="nav-link">
+            <i class="fas fa-chart-line"></i> Yearly Annual Sums
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'all_student_id_cards' %}" class="nav-link">
+            <i class="fas fa-id-card text-success"></i> Print Student QR Cards
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-section-title sidebar-section-exams"><i class="fas fa-medal me-1"></i> Examinations & Results</div>
+      <ul class="sidebar-nav">
+        <li class="nav-item">
+          <a href="{% url 'exam_dashboard' %}" class="nav-link">
+            <i class="fas fa-graduation-cap"></i> Exams Dashboard
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'wing_result_book' %}" class="nav-link">
+            <i class="fas fa-book-open text-warning"></i> Wing & School Result Book
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'consolidated_annual_result' %}" class="nav-link">
+            <i class="fas fa-layer-group text-info"></i> Consolidated Annual Gazette
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'student_exam_history' %}" class="nav-link">
+            <i class="fas fa-history text-success"></i> Student Exam History
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'class_result_sheet' %}" class="nav-link">
+            <i class="fas fa-table"></i> Class Result Sheet (F-1)
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'class_marks_entry_grid' %}" class="nav-link">
+            <i class="fas fa-edit"></i> Enter Marks Grid
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'subject_award_sheet' %}" class="nav-link">
+            <i class="fas fa-clipboard-check"></i> Subject Award List (F-2)
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'blank_marks_sheet' %}" class="nav-link">
+            <i class="fas fa-file-alt"></i> Blank Marks Sheet
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'bulk_dmc_print' %}" class="nav-link">
+            <i class="fas fa-id-card"></i> Bulk Result Cards (DMC)
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'roll_number_slips' %}" class="nav-link">
+            <i class="fas fa-id-badge"></i> Roll Number Slips
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'subject_manage' %}" class="nav-link">
+            <i class="fas fa-sliders-h"></i> Class Subjects Setup
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'exam_list' %}" class="nav-link">
+            <i class="fas fa-calendar-alt"></i> Exam Terms
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'student_fee_collection_list' %}" class="nav-link text-info fw-bold">
+            <i class="fas fa-file-invoice-dollar text-info"></i> Exam Fee Collection List
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-section-title sidebar-section-admin"><i class="fas fa-sliders-h me-1"></i> System & Administration</div>
+      <ul class="sidebar-nav mb-4">
+        <li class="nav-item">
+          <a href="{% url 'school_settings' %}" class="nav-link">
+            <i class="fas fa-school"></i> School Profile
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'session_list' %}" class="nav-link">
+            <i class="fas fa-calendar"></i> Academic Sessions
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'class_list' %}" class="nav-link">
+            <i class="fas fa-chalkboard"></i> Classes & Sections (Till 5th)
+          </a>
+        </li>
+            <i class="fas fa-chalkboard"></i> Classes & Sections
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="/admin/" target="_blank" class="nav-link">
+            <i class="fas fa-shield-halved"></i> {{ school_setting.short_name|default:"Master" }} Administration
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'excel_data_hub' %}" class="nav-link text-success fw-bold">
+            <i class="fas fa-file-excel"></i> Excel Data Hub
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{% url 'download_db_backup' %}" class="nav-link text-warning">
+            <i class="fas fa-download"></i> Download DB Backup
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- Main Content Area -->
+    <div id="content-wrapper">
+      <!-- Top Navbar -->
+      <header class="topbar">
+        <div class="d-flex align-items-center gap-3">
+          <button id="sidebarToggle" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-bars"></i>
+          </button>
+          <div class="badge-session">
+            <i class="fas fa-calendar-check me-1"></i>
+            Active Session: <strong>{{ active_session.name|default:"Not Set" }}</strong>
+          </div>
+          {% if software_license %}
+          <a href="{% url 'license_developer_portal' %}" 
+             class="badge text-decoration-none shadow-sm d-flex align-items-center gap-1 px-3 py-2 border {{ software_license.status_badge_class }}" 
+             style="font-size: 0.82rem; border-radius: 8px; transition: transform 0.15s ease;"
+             onmouseover="this.style.transform='scale(1.03)'"
+             onmouseout="this.style.transform='scale(1.0)'"
+             title="Software Subscription / License Duration &bull; Click to Open Developer Portal">
+            <i class="fas fa-shield-alt"></i>
+            <span class="d-none d-md-inline">License:</span>
+            <strong>{{ software_license.time_remaining_display }}</strong>
+          </a>
+          {% endif %}
+        </div>
+
+        <div class="d-flex align-items-center gap-2 gap-md-3">
+          <!-- Easy Visual 1-Click Teacher Attendance Scan Button -->
+          <a href="{% url 'qr_attendance_scan' %}" class="btn btn-sm fw-bold d-flex align-items-center shadow-sm px-3 py-1 text-white border-0" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 8px;" title="Open Teacher QR Attendance Scanner">
+            <i class="fas fa-qrcode fa-lg me-2"></i>
+            <span class="d-none d-sm-inline">Scan Teacher Attendance</span>
+            <span class="d-inline d-sm-none">Scan QR</span>
+          </a>
+
+          <div class="dropdown">
+            <button class="btn btn-sm btn-light dropdown-toggle d-flex align-items-center gap-2 border" type="button" data-bs-toggle="dropdown">
+              <i class="fas fa-user-circle fa-lg text-primary"></i>
+              <span>{{ request.user.username }}</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+              <li><h6 class="dropdown-header">{{ request.user.get_full_name|default:request.user.username }}</h6></li>
+              <li><a class="dropdown-item" href="{% url 'school_settings' %}"><i class="fas fa-cog me-2"></i> Settings</a></li>
+              <li><a class="dropdown-item" href="/admin/"><i class="fas fa-shield-alt me-2"></i> Admin Panel</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form action="{% url 'logout' %}" method="post" class="d-inline">
+                  {% csrf_token %}
+                  <button type="submit" class="dropdown-item text-danger">
+                    <i class="fas fa-sign-out-alt me-2"></i> Logout
+                  </button>
+                </form>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </header>
+
+      <!-- Print Header (Hidden on screen, visible on print) -->
+      {% block print_header %}
+      <div class="print-header">
+        <div class="d-flex align-items-center justify-content-center gap-3 mb-2">
+          {% if school_setting.logo %}
+            <img src="{{ school_setting.logo.url }}" alt="Logo" style="height: 70px; width: 70px; border-radius: 50%;">
+          {% else %}
+            <img src="{% static 'dist/img/logo.png' %}" alt="Logo" style="height: 70px; width: 70px; border-radius: 50%;">
+          {% endif %}
+          <div>
+            <h3 class="mb-0 font-weight-bold">{{ school_setting.name }}</h3>
+            <p class="mb-0 text-muted small">{{ school_setting.address }}</p>
+            <p class="mb-0 text-muted small">Contact: {{ school_setting.contact }} | Session: {{ active_session.name }}</p>
+          </div>
+        </div>
+      </div>
+      {% endblock %}
+
+      <!-- Main Page Content -->
+      <main class="main-content">
+        {% if messages %}
+          <div class="mb-4">
+            {% for message in messages %}
+              <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} alert-dismissible fade show shadow-sm d-flex align-items-center" role="alert">
+                {% if message.tags == 'error' or message.tags == 'danger' %}
+                  <i class="fas fa-exclamation-circle fs-5 me-2 flex-shrink-0"></i>
+                {% elif message.tags == 'warning' %}
+                  <i class="fas fa-exclamation-triangle fs-5 me-2 flex-shrink-0"></i>
+                {% elif message.tags == 'success' %}
+                  <i class="fas fa-check-circle fs-5 me-2 flex-shrink-0"></i>
+                {% else %}
+                  <i class="fas fa-info-circle fs-5 me-2 flex-shrink-0"></i>
+                {% endif %}
+                <div class="flex-grow-1">{{ message }}</div>
+                <button type="button" class="btn-close ms-2" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <!-- GPS Automated Daily Backup Splash Screen Modal -->
+  <div class="modal fade" id="gpsAutoBackupSplashModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow-lg overflow-hidden" style="border-radius: 16px;">
+        <div class="p-4 text-white text-center" style="background: linear-gradient(135deg, #1a365d 0%, #0f2442 100%);">
+          <div class="mb-2">
+            <i id="gpsSplashIcon" class="fas fa-cloud-upload-alt fa-3x text-warning"></i>
+          </div>
+          <h5 class="fw-bold mb-1" id="gpsSplashTitle">Automated Daily Cloud Backup</h5>
+          <p class="small mb-0 text-white-50">
+            {{ school_setting.name|default:"School Management System" }} &bull; Full PostgreSQL (<code>.sql</code>) &amp; Master Excel (<code>.xlsx</code>)
+          </p>
+        </div>
+        <div class="modal-body p-4 text-center">
+          <div id="gpsSplashStatusBadge" class="badge bg-primary-subtle text-primary px-3 py-2 mb-3 fs-6">
+            <i class="fas fa-wifi me-1"></i> Step 1/3: Checking Network Connection...
+          </div>
+          <p id="gpsSplashMessage" class="text-muted small mb-3">
+            Verifying internet &amp; mail server connectivity before sending full school data backup (Students, Teachers, Exam Marks, Fee Receipts &amp; Accounts)...
+          </p>
+          <div class="progress mb-3" style="height: 10px; border-radius: 8px;">
+            <div id="gpsSplashProgress" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 25%"></div>
+          </div>
+          <div class="d-flex justify-content-center gap-2 mt-3" id="gpsSplashActions">
+            <button type="button" id="gpsSplashRetryBtn" class="btn btn-sm btn-primary fw-bold d-none" onclick="window.triggerGpsAutoBackupSplash(false)">
+              <i class="fas fa-sync-alt me-1"></i> Retry Network &amp; Send
+            </button>
+            <button type="button" id="gpsSplashCloseBtn" class="btn btn-sm btn-outline-secondary fw-bold" data-bs-dismiss="modal">
+              Continue Working / Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container for Non-Blocking Auto Backup Prompt & Done Alerts -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1090;">
+    <!-- Prompt Toast -->
+    <div id="gpsAutoBackupPromptToast" class="toast shadow-lg border border-primary" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="false">
+      <div class="toast-header bg-primary text-white">
+        <i class="fas fa-hdd me-2"></i>
+        <strong class="me-auto">Scheduled Backup Due</strong>
+        <small class="text-white-50">Offline &amp; Cloud</small>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body bg-light">
+        <div class="small mb-2 text-dark">
+          Full system backup (.sql &amp; .xlsx) is scheduled to save to safe drive <strong>{{ school_setting.safe_backup_folder|default:"D:\School_Backups" }}</strong>.
+        </div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-primary fw-bold" onclick="window.runGpsAutoBackupBackground(false, true)">
+            <i class="fas fa-play me-1"></i> Run Backup Now
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="toast">
+            Later
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Done / Status Toast -->
+    <div id="gpsAutoBackupDoneToast" class="toast shadow-lg border border-success" role="alert" aria-live="polite" aria-atomic="true" data-bs-delay="6500">
+      <div class="toast-header bg-success text-white">
+        <i class="fas fa-check-circle me-2"></i>
+        <strong class="me-auto" id="gpsDoneToastTitle">Backup Saved</strong>
+        <small class="text-white-50">Safe Drive</small>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body bg-light small" id="gpsDoneToastBody">
+        Full .sql &amp; .xlsx files saved safely.
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle (Offline) -->
+  <script src="{% static 'vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+  <!-- jQuery (Offline) -->
+  <script src="{% static 'vendor/jquery/jquery.min.js' %}"></script>
+  <script>
+    $('#sidebarToggle').on('click', function() {
+      $('#sidebar').toggleClass('collapsed');
+    });
+
+    // Background Backup Runner (No Splash Modal Freeze)
+    window.runGpsAutoBackupBackground = function(isAuto, fromPrompt) {
+      if (fromPrompt) {
+        var pToastEl = document.getElementById('gpsAutoBackupPromptToast');
+        if (pToastEl) {
+          var pToast = bootstrap.Toast.getInstance(pToastEl);
+          if (pToast) pToast.hide();
+        }
+      }
+
+      var formData = new FormData();
+      formData.append('is_auto', isAuto ? '1' : '0');
+      formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+      fetch("{% url 'api_run_email_backup' %}", {
+        method: 'POST',
+        body: formData
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(resData) {
+        sessionStorage.setItem('gps_auto_backup_done_session', '1');
+        var doneToastEl = document.getElementById('gpsAutoBackupDoneToast');
+        var bodyEl = document.getElementById('gpsDoneToastBody');
+        var titleEl = document.getElementById('gpsDoneToastTitle');
+        if (doneToastEl && bodyEl) {
+          if (resData.success) {
+            titleEl.textContent = 'Backup Complete';
+            bodyEl.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i> Full .sql & .xlsx backups safely preserved on safe hard drive (<strong>{{ school_setting.safe_backup_folder|default:"D:\\School_Backups"|escapejs }}</strong>).';
+          } else {
+            titleEl.textContent = 'Backup Notice';
+            bodyEl.innerHTML = resData.message || 'Backup saved locally.';
+          }
+          var doneToast = new bootstrap.Toast(doneToastEl, { delay: 6500 });
+          doneToast.show();
+        }
+      })
+      .catch(function(err) {
+        console.warn('Background auto backup note:', err);
+      });
+    };
+
+    // Splash Modal Runner (Visual Progress Modal)
+    window.triggerGpsAutoBackupSplash = function(isAuto) {
+      var modalEl = document.getElementById('gpsAutoBackupSplashModal');
+      if (!modalEl) return;
+      var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modal.show();
+
+      var badge = document.getElementById('gpsSplashStatusBadge');
+      var msg = document.getElementById('gpsSplashMessage');
+      var bar = document.getElementById('gpsSplashProgress');
+      var icon = document.getElementById('gpsSplashIcon');
+      var retryBtn = document.getElementById('gpsSplashRetryBtn');
+
+      retryBtn.classList.add('d-none');
+      icon.className = 'fas fa-cog fa-spin fa-3x text-info';
+      badge.className = 'badge bg-primary-subtle text-primary px-3 py-2 mb-3 fs-6';
+      badge.innerHTML = '<i class="fas fa-hdd me-1"></i> Creating Full Backup (.SQL + Master .XLSX)...';
+      msg.textContent = 'Generating database dump and master Excel file, saving to safe drive {{ school_setting.safe_backup_folder|default:"D:\\School_Backups"|escapejs }} and sending to configured emails...';
+      bar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+      bar.style.width = '60%';
+
+      var formData = new FormData();
+      formData.append('is_auto', isAuto ? '1' : '0');
+      formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+      fetch("{% url 'api_run_email_backup' %}", {
+        method: 'POST',
+        body: formData
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(resData) {
+        sessionStorage.setItem('gps_auto_backup_done_session', '1');
+        if (resData.success) {
+          icon.className = 'fas fa-check-circle fa-3x text-success';
+          badge.className = 'badge bg-success text-white px-3 py-2 mb-3 fs-6';
+          badge.innerHTML = '<i class="fas fa-check-double me-1"></i> Full Backup Generated &amp; Saved!';
+          msg.innerHTML = '<div class="alert alert-success py-1 px-2 mb-0"><i class="fas fa-hdd me-1"></i> Saved to safe folder: <strong>{{ school_setting.safe_backup_folder|default:"D:\\School_Backups"|escapejs }}</strong> &amp; <code>backups/</code>.</div>';
+          bar.className = 'progress-bar bg-success';
+          bar.style.width = '100%';
+          setTimeout(function() {
+            modal.hide();
+          }, 3200);
+        } else {
+          icon.className = 'fas fa-hdd fa-3x text-info';
+          badge.className = 'badge bg-info text-dark px-3 py-2 mb-3 fs-6';
+          badge.innerHTML = '<i class="fas fa-check-circle me-1"></i> Backup Saved to Safe Drive (Offline)';
+          msg.innerHTML = resData.message;
+          bar.className = 'progress-bar bg-info';
+          bar.style.width = '100%';
+          retryBtn.classList.remove('d-none');
+        }
+      })
+      .catch(function(err) {
+        icon.className = 'fas fa-exclamation-triangle fa-3x text-warning';
+        badge.className = 'badge bg-warning text-dark px-3 py-2 mb-3 fs-6';
+        badge.innerHTML = 'Backup Check Note';
+        msg.textContent = 'Could not reach server: ' + err;
+        retryBtn.classList.remove('d-none');
+      });
+    };
+
+    {% if auto_backup_due %}
+    document.addEventListener('DOMContentLoaded', function() {
+      if (sessionStorage.getItem('gps_auto_backup_checked_session')) return;
+      sessionStorage.setItem('gps_auto_backup_checked_session', '1');
+
+      var mode = "{{ school_setting.auto_backup_mode|default:'background' }}";
+      if (mode === 'prompt') {
+        setTimeout(function() {
+          var toastEl = document.getElementById('gpsAutoBackupPromptToast');
+          if (toastEl) {
+            var toast = new bootstrap.Toast(toastEl, { autohide: false });
+            toast.show();
+          }
+        }, 1200);
+      } else if (mode === 'splash') {
+        setTimeout(function() {
+          window.triggerGpsAutoBackupSplash(true);
+        }, 800);
+      } else {
+        // mode === 'background' (Default, Silent & Smooth)
+        setTimeout(function() {
+          window.runGpsAutoBackupBackground(true, false);
+        }, 1500);
+      }
+    });
+    {% endif %}
+  </script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>
+

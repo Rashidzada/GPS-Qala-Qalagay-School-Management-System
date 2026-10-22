@@ -1,0 +1,400 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Central Excel Data Hub{% endblock %}
+
+{% block content %}
+<!-- Page Header -->
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+  <div>
+    <h3 class="fw-bold mb-0 text-dark">
+      <i class="fas fa-file-excel me-2 text-success"></i> Central Data Exchange, Full SQL &amp; Master Excel Backup Hub
+    </h3>
+    <p class="text-muted small mb-0">
+      Complete institutional backup &amp; restore: export/restore 100% of school data (Students, Teachers, Classes, Sections, All Exam Marks, Fee Ledgers, Payments &amp; Salaries) via PostgreSQL <code>.sql</code> or 16-Sheet Master <code>.xlsx</code>.
+    </p>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a href="{% url 'download_db_backup' %}" class="btn btn-warning text-dark fw-bold shadow-sm">
+      <i class="fas fa-database me-1"></i> Download Full .SQL Backup
+    </a>
+    <a href="{% url 'download_master_excel_backup' %}" class="btn btn-success fw-bold shadow-sm">
+      <i class="fas fa-file-excel me-1"></i> Download Full Master .XLSX
+    </a>
+    <button type="button" class="btn btn-dark fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#fullRestoreModal">
+      <i class="fas fa-cloud-upload-alt me-1 text-warning"></i> Restore Full Backup (.SQL / .XLSX)
+    </button>
+    <button type="button" class="btn btn-primary fw-bold shadow-sm" onclick="window.triggerGpsAutoBackupSplash(false)">
+      <i class="fas fa-paper-plane me-1"></i> Email Backup Now
+    </button>
+  </div>
+</div>
+
+<!-- Full System Backup & Restore Master Banner -->
+<div class="card shadow-sm border-top border-warning border-4 mb-4">
+  <div class="card-body p-4">
+    <div class="row align-items-center g-3">
+      <div class="col-lg-7">
+        <h5 class="fw-bold text-dark mb-1">
+          <i class="fas fa-shield-alt text-primary me-2"></i> Real Full-System Database Backup &amp; One-Click Restore
+        </h5>
+        <p class="text-muted small mb-2">
+          Unlike single-table templates, the <strong>Full PostgreSQL (<code>.sql</code>)</strong> and <strong>Full 16-Sheet Master Excel (<code>.xlsx</code>)</strong> backups save <strong>every single record</strong> in the school:
+          <strong>{{ total_students }} Students</strong>, <strong>{{ active_teachers }} Teachers</strong> (with Father Name, Contact, CNIC, Section &amp; Photo),
+          <strong>{{ total_exam_marks }} Student Exam Marks</strong>, and <strong>{{ total_fee_receipts }} Fee Payment Receipts</strong>.
+        </p>
+        <div class="d-flex flex-wrap gap-2">
+          <a href="{% url 'download_db_backup' %}" class="btn btn-sm btn-warning text-dark fw-bold">
+            <i class="fas fa-database me-1"></i> 1. Download Full PostgreSQL (.SQL)
+          </a>
+          <a href="{% url 'download_master_excel_backup' %}" class="btn btn-sm btn-success fw-bold">
+            <i class="fas fa-file-excel me-1"></i> 2. Download Full 16-Sheet Master (.XLSX)
+          </a>
+          <a href="{% url 'school_settings' %}" class="btn btn-sm btn-outline-primary fw-bold">
+            <i class="fas fa-envelope me-1"></i> 3. Configure 3-Email Auto Daily Backup
+          </a>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <form method="post" action="{% url 'restore_full_database' %}" enctype="multipart/form-data" class="bg-light p-3 rounded border">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'excel_data_hub' %}">
+          <label class="form-label fw-bold small text-dark mb-1">
+            <i class="fas fa-upload text-success me-1"></i> Quick Restore Full Database (Upload <code>.sql</code> or Master <code>.xlsx</code>)
+          </label>
+          <div class="input-group input-group-sm">
+            <input type="file" name="backup_file" class="form-control" accept=".sql,.xlsx,.xls,.json" required>
+            <button type="submit" class="btn btn-success fw-bold" onclick="return confirm('Restore full database (Students, Teachers, Marks, Fee Receipts & Accounts) from this backup file?');">
+              <i class="fas fa-sync-alt me-1"></i> Restore Now
+            </button>
+          </div>
+          <div class="form-text small">Restores all marks, fee payments, teachers, students &amp; syncs PostgreSQL sequences.</div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Full Restore Modal -->
+<div class="modal fade" id="fullRestoreModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'restore_full_database' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{% url 'excel_data_hub' %}">
+        <div class="modal-header bg-dark text-white">
+          <h5 class="modal-title fw-bold">
+            <i class="fas fa-cloud-upload-alt me-2 text-warning"></i> Restore Full School Database (<code>.sql</code> or <code>.xlsx</code>)
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            Select a <strong>Full PostgreSQL Backup (<code>.sql</code>)</strong> or <strong>Full 16-Sheet Master Excel Backup (<code>.xlsx</code>)</strong> to restore all Students, Teachers, Classes, Sections, Exam Marks, Fee Ledgers, Payment Receipts, Salary Bills, and Expenses.
+          </p>
+          <div class="mb-3">
+            <label class="form-label fw-bold small">Select Backup File (<code>.sql</code>, <code>.xlsx</code>, or <code>.json</code>) *</label>
+            <input type="file" name="backup_file" class="form-control" accept=".sql,.xlsx,.xls,.json" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success fw-bold">
+            <i class="fas fa-upload me-1"></i> Upload &amp; Restore Everything
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Quick Statistics Banner -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4 col-sm-6">
+    <div class="card border-0 shadow-sm bg-primary text-white p-3">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small text-white-50 text-uppercase fw-bold">Active Students</div>
+          <h3 class="fw-bold mb-0">{{ active_students }}</h3>
+          <span class="small text-white-50">Total Enrolled: {{ total_students }}</span>
+        </div>
+        <i class="fas fa-user-graduate fa-2x opacity-50"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4 col-sm-6">
+    <div class="card border-0 shadow-sm bg-success text-white p-3">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small text-white-50 text-uppercase fw-bold">Primary Classes (Till 5th)</div>
+          <h3 class="fw-bold mb-0">{{ total_classes }}</h3>
+          <span class="small text-white-50">{{ total_sections }} Configured Sections</span>
+        </div>
+        <i class="fas fa-school fa-2x opacity-50"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4 col-sm-6">
+    <div class="card border-0 shadow-sm bg-dark text-white p-3">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small text-white-50 text-uppercase fw-bold">Student Exam Marks</div>
+          <h3 class="fw-bold mb-0">{{ total_exam_marks }}</h3>
+          <span class="small text-white-50">Official Marks Records</span>
+        </div>
+        <i class="fas fa-medal fa-2x text-warning opacity-75"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Main Cards Grid -->
+<div class="row g-4 mb-4">
+
+  <!-- 1. Students & Admissions -->
+  <div class="col-lg-6 col-md-6">
+    <div class="card h-100 shadow-sm border-top border-primary border-3">
+      <div class="card-body d-flex flex-column p-4">
+        <div class="d-flex align-items-center mb-3">
+          <div class="bg-primary-subtle text-primary p-3 rounded-circle me-3">
+            <i class="fas fa-user-graduate fa-lg"></i>
+          </div>
+          <div>
+            <h5 class="fw-bold mb-0 text-dark">Students &amp; Admissions</h5>
+            <span class="badge bg-primary">Bulk Data &amp; Roster</span>
+          </div>
+        </div>
+        <p class="text-muted small flex-grow-1">
+          Export full student directories with admission numbers, class &amp; section assignments, father names, contact details, and dates. Upload standardized spreadsheets to onboard hundreds of students in seconds.
+        </p>
+        <div class="d-grid gap-2">
+          <a href="{% url 'export_students_excel' %}" class="btn btn-primary fw-bold">
+            <i class="fas fa-download me-1"></i> Export All Students (.xlsx)
+          </a>
+          <a href="{% url 'download_student_template' %}" class="btn btn-outline-primary">
+            <i class="fas fa-file-excel me-1"></i> Download Sample Template
+          </a>
+          <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#importStudentModal">
+            <i class="fas fa-upload me-1"></i> Bulk Import Students
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Classes & Sections (Till 5th) -->
+  <div class="col-lg-6 col-md-6">
+    <div class="card h-100 shadow-sm border-top border-info border-3">
+      <div class="card-body d-flex flex-column p-4">
+        <div class="d-flex align-items-center mb-3">
+          <div class="bg-info-subtle text-info p-3 rounded-circle me-3">
+            <i class="fas fa-chalkboard fa-lg"></i>
+          </div>
+          <div>
+            <h5 class="fw-bold mb-0 text-dark">Classes &amp; Sections (Till 5th)</h5>
+            <span class="badge bg-info text-dark">Primary Academic Setup</span>
+          </div>
+        </div>
+        <p class="text-muted small flex-grow-1">
+          Manage institutional primary grade structure (Nursery, Prep, Class 1 to Class 5th) and section breakdowns. Export and import class rosters.
+        </p>
+        <div class="d-grid gap-2">
+          <a href="{% url 'export_classes_excel' %}" class="btn btn-info text-dark fw-bold">
+            <i class="fas fa-download me-1"></i> Export Classes &amp; Sections
+          </a>
+          <a href="{% url 'download_class_template' %}" class="btn btn-outline-info text-dark">
+            <i class="fas fa-file-excel me-1"></i> Download Sample Template
+          </a>
+          <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#importClassModal">
+            <i class="fas fa-upload me-1"></i> Bulk Import Classes
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Examinations & Results -->
+  <div class="col-lg-12">
+    <div class="card shadow-sm border-top border-primary border-3">
+      <div class="card-body p-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+          <div class="d-flex align-items-center">
+            <div class="bg-primary-subtle text-primary p-3 rounded-circle me-3">
+              <i class="fas fa-graduation-cap fa-2x"></i>
+            </div>
+            <div>
+              <h5 class="fw-bold mb-0 text-dark">Examinations, All Student Marks Backup &amp; Award Sheets</h5>
+              <span class="badge bg-primary">Full Exam Marks Backup &amp; Excel Integration</span>
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <a href="{% url 'export_all_exams_backup_excel' %}" class="btn btn-success fw-bold">
+              <i class="fas fa-download me-1"></i> Export All Exam Marks Backup (.XLSX)
+            </a>
+            <button type="button" class="btn btn-dark fw-bold" data-bs-toggle="modal" data-bs-target="#fullRestoreModal">
+              <i class="fas fa-upload me-1 text-warning"></i> Restore Exam Marks (.XLSX / .SQL)
+            </button>
+          </div>
+        </div>
+        <p class="text-muted small">
+          Download a complete backup of <strong>all {{ total_exam_marks }} recorded student exam marks</strong> across all exams and subjects, or export single-subject award sheets (S#no, NAME, F/NAME, T/MARKS, O/MARKS) and multi-subject class result sheets.
+        </p>
+        <div class="row g-2">
+          <div class="col-md-3 col-sm-6">
+            <a href="{% url 'subject_award_sheet' %}" class="btn btn-outline-success w-100 fw-bold">
+              <i class="fas fa-clipboard-check me-1"></i> Subject Award Sheets (F-2)
+            </a>
+          </div>
+          <div class="col-md-3 col-sm-6">
+            <a href="{% url 'class_result_sheet' %}" class="btn btn-outline-primary w-100 fw-bold">
+              <i class="fas fa-table me-1"></i> Class Result Sheet (F-1)
+            </a>
+          </div>
+          <div class="col-md-3 col-sm-6">
+            <a href="{% url 'subject_manage' %}" class="btn btn-outline-warning text-dark w-100 fw-bold">
+              <i class="fas fa-sliders-h me-1"></i> Class Subjects Setup
+            </a>
+          </div>
+          <div class="col-md-3 col-sm-6">
+            <a href="{% url 'exam_dashboard' %}" class="btn btn-primary w-100 fw-bold">
+              <i class="fas fa-tachometer-alt me-1"></i> Exam Dashboard
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+</div>
+
+<!-- Migration & Onboarding Guide Card -->
+<div class="card shadow-sm border-0 bg-light p-4 mb-4">
+  <div class="d-flex align-items-start">
+    <div class="me-3 text-success">
+      <i class="fas fa-lightbulb fa-2x"></i>
+    </div>
+    <div>
+      <h5 class="fw-bold text-dark mb-2">School Migration & Excel Backup Workflow</h5>
+      <p class="text-muted small mb-3">
+        Whether moving from another software or manual paper registers into {{ school_setting.name }}, follow these 3 simple steps:
+      </p>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <div class="bg-white p-3 rounded border h-100">
+            <span class="badge bg-primary mb-2">Step 1</span>
+            <h6 class="fw-bold">Download Sample Template</h6>
+            <p class="text-muted small mb-0">
+              Download the official <code>.xlsx</code> sample template above. Each template comes pre-formatted with expected columns and example rows.
+            </p>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="bg-white p-3 rounded border h-100">
+            <span class="badge bg-primary mb-2">Step 2</span>
+            <h6 class="fw-bold">Populate Your Data</h6>
+            <p class="text-muted small mb-0">
+              Copy and paste your school's records into the spreadsheet using Microsoft Excel, Google Sheets, or LibreOffice Calc. Keep the column header row intact.
+            </p>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="bg-white p-3 rounded border h-100">
+            <span class="badge bg-success mb-2">Step 3</span>
+            <h6 class="fw-bold">Upload & Auto-Link</h6>
+            <p class="text-muted small mb-0">
+              Click <strong>Import</strong>. The system will automatically create classes, sections, family units, assign admission numbers, and generate 12-month fee ledgers instantly.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+
+<!-- Import Students Modal -->
+<div class="modal fade" id="importStudentModal" tabindex="-1" aria-labelledby="importStudentModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'import_students_excel' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title" id="importStudentModalLabel">
+            <i class="fas fa-file-excel me-2"></i> Bulk Import Students (.xlsx)
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            Quickly onboard or restore students in bulk by uploading a standardized Excel spreadsheet.
+          </p>
+          <div class="alert alert-info py-2 small d-flex align-items-center justify-content-between">
+            <span><i class="fas fa-info-circle me-1"></i> Need the official template?</span>
+            <a href="{% url 'download_student_template' %}" class="btn btn-sm btn-primary">
+              <i class="fas fa-download me-1"></i> Download Sample Excel
+            </a>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold small">Select Excel (.xlsx) File *</label>
+            <input type="file" name="excel_file" class="form-control" accept=".xlsx, .xls" required>
+            <div class="form-text small">
+              Missing classes, sections, and family units will be created automatically, and 12-month fee ledgers will be initialized.
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-upload me-1"></i> Upload & Import Data
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- Import Classes Modal -->
+<div class="modal fade" id="importClassModal" tabindex="-1" aria-labelledby="importClassModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'import_classes_excel' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="modal-header bg-info text-dark">
+          <h5 class="modal-title fw-bold" id="importClassModalLabel">
+            <i class="fas fa-file-excel me-2"></i> Bulk Import Classes & Sections (.xlsx)
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            Quickly set up school grades and sections by uploading an Excel workbook.
+          </p>
+          <div class="alert alert-info py-2 small d-flex align-items-center justify-content-between">
+            <span><i class="fas fa-info-circle me-1"></i> Need the official template?</span>
+            <a href="{% url 'download_class_template' %}" class="btn btn-sm btn-dark">
+              <i class="fas fa-download me-1"></i> Download Sample Excel
+            </a>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold small">Select Excel (.xlsx) File *</label>
+            <input type="file" name="excel_file" class="form-control" accept=".xlsx, .xls" required>
+            <div class="form-text small">
+              Supported format: Microsoft Excel (.xlsx). Comma-separated sections (e.g. <code>A, B, C</code>) are automatically parsed.
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-info fw-bold">
+            <i class="fas fa-upload me-1"></i> Upload & Import Classes
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

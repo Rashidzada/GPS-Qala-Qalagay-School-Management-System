@@ -1,0 +1,228 @@
+{% extends 'base.html' %}
+{% load humanize %}
+
+{% block title %}Full Teachers & Staff Directory{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 no-print">
+  <div>
+    <h3 class="fw-bold mb-0 text-dark">
+      <i class="fas fa-chalkboard-teacher me-2 text-success"></i> Full Teachers &amp; Staff Directory
+    </h3>
+    <p class="text-muted small mb-0">
+      Total Staff Members: <strong>{{ teachers.count }}</strong> &bull; Showing Name, Father Name, Contact, CNIC, Qualification, Assigned Section, Salary &amp; Photo (Optional)
+    </p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <button type="button" onclick="window.print()" class="btn btn-outline-secondary" title="Print Full Teacher Directory">
+      <i class="fas fa-print me-1"></i> Print Full List
+    </button>
+    <a href="{% url 'export_teachers_excel' %}?{{ request.GET.urlencode }}" class="btn btn-success fw-bold" title="Export full staff list with all columns to Excel">
+      <i class="fas fa-file-excel me-1"></i> Export Full Staff Excel
+    </a>
+    <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#importTeacherModal">
+      <i class="fas fa-file-upload me-1"></i> Import Excel
+    </button>
+    <a href="{% url 'all_staff_id_cards' %}" class="btn btn-outline-dark" target="_blank">
+      <i class="fas fa-id-card me-1"></i> Staff ID Cards
+    </a>
+    <a href="{% url 'salary_bill_list' %}" class="btn btn-outline-primary">
+      <i class="fas fa-file-invoice-dollar me-1"></i> Salary Bills
+    </a>
+    <a href="{% url 'teacher_create' %}" class="btn btn-primary fw-bold">
+      <i class="fas fa-user-plus me-1"></i> Add Teacher
+    </a>
+  </div>
+</div>
+
+<!-- Search Bar -->
+<div class="card mb-4 shadow-sm border-0 bg-light no-print">
+  <div class="card-body p-3">
+    <form method="get" class="row g-2 align-items-center">
+      <div class="col-md-7">
+        <div class="input-group">
+          <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
+          <input type="text" name="q" value="{{ query }}" class="form-control" placeholder="Search by teacher name, father name, staff ID, designation, section, contact, CNIC...">
+        </div>
+      </div>
+      <div class="col-md-3">
+        <select name="status" class="form-select">
+          <option value="">All Statuses</option>
+          <option value="Active" {% if selected_status == "Active" %}selected{% endif %}>Active</option>
+          <option value="Inactive" {% if selected_status == "Inactive" %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-success flex-grow-1"><i class="fas fa-filter me-1"></i> Filter</button>
+        <a href="{% url 'teacher_list' %}" class="btn btn-outline-secondary"><i class="fas fa-sync-alt"></i></a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Full Teacher Directory Table -->
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover table-bordered align-middle mb-0">
+      <thead class="table-light small">
+        <tr>
+          <th style="width: 52px;" class="text-center">Photo</th>
+          <th>Staff ID</th>
+          <th>Full Name</th>
+          <th>Father / Husband Name</th>
+          <th>Designation &amp; Section</th>
+          <th>Contact &amp; CNIC</th>
+          <th>Qualification &amp; Experience</th>
+          <th>Address &amp; Joining</th>
+          <th>Salary Scale</th>
+          <th>Status</th>
+          <th class="text-end no-print">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="small">
+        {% for t in teachers %}
+          <tr>
+            <td class="text-center">
+              {% if t.profile_picture %}
+                <img src="{{ t.profile_picture.url }}" alt="{{ t.full_name }}" class="rounded-circle border" style="width: 42px; height: 42px; object-fit: cover;">
+              {% else %}
+                <div class="bg-success text-white rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 42px; height: 42px; font-size: 0.95rem; font-weight: bold;" title="Photo Optional">
+                  {{ t.full_name|slice:":1" }}
+                </div>
+              {% endif %}
+            </td>
+            <td class="fw-bold text-success text-nowrap">{{ t.teacher_id }}</td>
+            <td>
+              <a href="{% url 'teacher_detail' t.pk %}" class="fw-bold text-dark text-decoration-none fs-6">
+                {{ t.full_name }}
+              </a>
+            </td>
+            <td class="fw-semibold text-secondary">
+              {{ t.father_name|default:"—" }}
+            </td>
+            <td>
+              <span class="badge bg-light text-dark border d-inline-block mb-1">{{ t.designation|default:"Teacher" }}</span>
+              {% if t.assigned_section %}
+                <div><span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="fas fa-chalkboard me-1"></i>{{ t.assigned_section }}</span></div>
+              {% endif %}
+              {% for sec in t.managed_sections.all %}
+                <div><span class="badge bg-info-subtle text-dark border"><i class="fas fa-users me-1"></i>{{ sec.class_level.name }} - {{ sec.name }}</span></div>
+              {% endfor %}
+            </td>
+            <td>
+              {% if t.contact_number %}
+                <div class="fw-bold text-dark"><i class="fas fa-phone-alt text-success me-1"></i>{{ t.contact_number }}</div>
+              {% else %}
+                <div class="text-muted">—</div>
+              {% endif %}
+              {% if t.cnic %}
+                <div class="text-muted"><i class="fas fa-id-card me-1"></i>{{ t.cnic }}</div>
+              {% endif %}
+              {% if t.email %}
+                <div class="text-muted"><i class="fas fa-envelope me-1"></i>{{ t.email }}</div>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.qualification %}
+                <div class="fw-semibold text-dark">{{ t.qualification }}</div>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+              {% if t.experience %}
+                <div class="text-muted">{{ t.experience }}</div>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.address %}
+                <div><i class="fas fa-map-marker-alt text-danger me-1"></i>{{ t.address }}</div>
+              {% endif %}
+              {% if t.joining_date %}
+                <div class="text-muted"><i class="fas fa-calendar-check me-1"></i>Joined: {{ t.joining_date|date:"d-M-Y" }}</div>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.salary_scale %}
+                <span class="badge bg-info text-dark">{{ t.salary_scale.name }}</span>
+                <div class="fw-bold text-success mt-1">PKR {{ t.salary_scale.gross_salary|floatformat:0|intcomma }}</div>
+              {% else %}
+                <span class="text-muted">Not Assigned</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.status == "Active" %}
+                <span class="badge bg-success">Active</span>
+              {% else %}
+                <span class="badge bg-secondary">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="text-end no-print text-nowrap">
+              <div class="btn-group btn-group-sm">
+                <a href="{% url 'teacher_detail' t.pk %}" class="btn btn-outline-secondary" title="View Full Profile">
+                  <i class="fas fa-eye"></i>
+                </a>
+                <a href="{% url 'teacher_update' t.pk %}" class="btn btn-outline-primary" title="Edit Teacher">
+                  <i class="fas fa-edit"></i>
+                </a>
+                <a href="{% url 'experience_certificate' t.pk %}" class="btn btn-outline-info text-dark" title="Experience Certificate" target="_blank">
+                  <i class="fas fa-certificate"></i>
+                </a>
+                <a href="{% url 'staff_id_card' t.pk %}" class="btn btn-outline-warning text-dark" title="Staff ID Card" target="_blank">
+                  <i class="fas fa-id-card"></i>
+                </a>
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="11" class="text-center py-5 text-muted">
+              <i class="fas fa-users-slash fa-3x mb-3 d-block text-secondary"></i>
+              No teachers or staff found matching your criteria.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Import Teachers Modal -->
+<div class="modal fade" id="importTeacherModal" tabindex="-1" aria-labelledby="importTeacherModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'import_teachers_excel' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title" id="importTeacherModalLabel">
+            <i class="fas fa-file-excel me-2"></i> Bulk Import Teachers &amp; Staff (.xlsx)
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            Easily import or update faculty and staff members in bulk by uploading an Excel spreadsheet (includes Name, Father Name, Contact, CNIC, Assigned Section, Qualification, and Salary Scale).
+          </p>
+          <div class="alert alert-info py-2 small d-flex align-items-center justify-content-between">
+            <span><i class="fas fa-info-circle me-1"></i> Need the official template?</span>
+            <a href="{% url 'download_teacher_template' %}" class="btn btn-sm btn-primary">
+              <i class="fas fa-download me-1"></i> Download Sample Excel
+            </a>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-bold small">Select Excel (.xlsx) File *</label>
+            <input type="file" name="excel_file" class="form-control" accept=".xlsx, .xls" required>
+            <div class="form-text small">
+              All fields except Full Name are optional. Existing Staff IDs will be updated automatically.
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success fw-bold">
+            <i class="fas fa-upload me-1"></i> Upload &amp; Import Staff
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

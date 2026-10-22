@@ -1,0 +1,1200 @@
+from decimal import Decimal
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+
+from school.excel_utils import create_styled_workbook, excel_download_response
+from school.models import AcademicSession, ClassLevel, Section, SchoolSetting
+from students.models import FamilyHousehold, Student
+from .forms import FamilyFeePaymentForm, FeeAdjustmentForm, FeeCollectForm
+from .models import FeePaymentReceipt, StudentFeeLedger, StudentFeeMonthEntry
+from .utils import initialize_ledger_months, recalculate_ledger_arrears
+from school.whatsapp_utils import (
+    build_student_fee_receipt_msg,
+    build_student_dues_reminder_msg,
+    build_family_dues_reminder_msg,
+)
+
+
+@login_required
+def fee_register(request):
+    """
+    Fee Register grid view (FR-5.3):
+    Rows = active students, Columns = 12 months, filterable by session and class.
+    """
+    active_session = AcademicSession.objects.filter(is_active=True).first()
+    session_id = request.GET.get("session")
+    if session_id:
+        current_session = get_object_or_404(AcademicSession, pk=session_id)
+    else:
+        current_session = active_session or AcademicSession.objects.first()
+
+    class_id = request.GET.get("class", "")
+    students = Student.objects.filter(status="Active").select_related("current_class", "current_section")
+    if class_id:
+        students = students.filter(current_class_id=class_id)
+
+    # Ensure each student has a ledger for this session
+    student_rows = []
+    if current_session:
+        for student in students:
+            ledger, created = StudentFeeLedger.objects.get_or_create(
+                student=student, academic_session=current_session
+            )
+            if created:
+                initialize_ledger_months(
+                    ledger, student, student.effective_monthly_fee
+                )
+            entries = {e.month: e for e in ledger.monthly_entries.all()}
+            total_due = sum(e.total_amount for e in entries.values())
+            total_paid = sum(e.paid_amount for e in entries.values())
+            total_balance = sum(e.balance for e in entries.values())
+            student_rows.append({
+                "student": student,
+                "ledger": ledger,
+                "entries": entries,
+                "total_due": total_due,
+                "total_paid": total_paid,
+                "total_balance": total_balance,
+            })
+
+    classes = ClassLevel.objects.all()
+    sessions = AcademicSession.objects.all()
+
+    context = {
+        "student_rows": student_rows,
+        "current_session": current_session,
+        "classes": classes,
+        "sessions": sessions,
+        "selected_class": class_id,
+        "months": range(1, 13),
+    }
+    return render(request, "finance/fee_register.html", context)
+
+
+@login_required
+def collect_fee(request, student_id):
+    """
+    Collect Fee screen per student (FR-5.4, FR-5.5, FR-5.6, FR-5.7).
+    Lump-sum allocated across oldest unpaid months first, auto receipt #, arrears recalculated.
+    """
+    student = get_object_or_404(Student, pk=student_id)
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    if not active_session:
+        active_session = AcademicSession.objects.create(name="2026-2027", is_active=True)
+
+    ledger, created = StudentFeeLedger.objects.get_or_create(
+        student=student, academic_session=active_session
+    )
+    if created or ledger.monthly_entries.count() < 12:
+        initialize_ledger_months(
+            ledger, student, student.effective_monthly_fee
+        )
+
+    if request.method == "POST":
+        # 1. Quick Add / Adjust Extra Charges, Fines, or Custom Tuition Fee
+        if request.POST.get("action") == "add_charge_or_adjust":
+            try:
+                target_month = int(request.POST.get("target_month", 1))
+                entry = ledger.monthly_entries.filter(month=target_month).first()
+                if entry:
+                    fine_val = request.POST.get("fine_punishment")
+                    if fine_val is not None and fine_val.strip() != "":
+                        entry.fine_punishment = max(Decimal("0.00"), Decimal(fine_val.strip()))
+                    fine_reason = request.POST.get("fine_reason")
+                    if fine_reason is not None:
+                        entry.fine_reason = fine_reason.strip()
+
+                    other_val = request.POST.get("other_charges")
+                    if other_val is not None and other_val.strip() != "":
+                        entry.other_charges = max(Decimal("0.00"), Decimal(other_val.strip()))
+                    other_label = request.POST.get("other_charges_label")
+                    if other_label is not None and other_label.strip() != "":
+                        entry.other_charges_label = other_label.strip()
+
+                    month_fee_val = request.POST.get("month_tuition_fee")
+                    if month_fee_val is not None and month_fee_val.strip() != "":
+                        entry.monthly_fee = max(Decimal("0.00"), Decimal(month_fee_val.strip()))
+
+                    exam_fee_val = request.POST.get("exam_fee")
+                    if exam_fee_val is not None and exam_fee_val.strip() != "":
+                        entry.exam_fee = max(Decimal("0.00"), Decimal(exam_fee_val.strip()))
+
+                    discount_val = request.POST.get("discount_concession")
+                    if discount_val is not None and discount_val.strip() != "":
+                        entry.discount_concession = max(Decimal("0.00"), Decimal(discount_val.strip()))
+
+                    entry.save(update_fields=[
+                        "fine_punishment", "fine_reason", "other_charges",
+                        "other_charges_label", "monthly_fee", "exam_fee", "discount_concession"
+                    ])
+
+                    if request.POST.get("set_permanent_custom"):
+                        if entry.monthly_fee == Decimal("0.00"):
+                            student.is_fee_free = True
+                            student.custom_monthly_fee = Decimal("0.00")
+                        else:
+                            student.is_fee_free = False
+                            student.custom_monthly_fee = entry.monthly_fee
+                        student.save(update_fields=["is_fee_free", "custom_monthly_fee"])
+                        ledger.monthly_entries.filter(month__gte=target_month, paid_amount=Decimal("0.00")).update(monthly_fee=entry.monthly_fee)
+
+                    recalculate_ledger_arrears(ledger)
+                    messages.success(request, f"Successfully customized charges & fee for {entry.get_month_display()}!")
+                    return redirect("collect_fee", student_id=student.id)
+            except Exception as e:
+                messages.error(request, f"Error saving charge adjustment: {e}")
+
+        # 2. Flexible Per-Month Typing Payment Submission
+        has_per_month_inputs = False
+        per_month_payments = []
+        unpaid_all = list(ledger.monthly_entries.filter(is_paid=False).order_by("month"))
+        for entry in unpaid_all:
+            key = f"pay_month_{entry.id}"
+            if key in request.POST:
+                raw_val = request.POST.get(key, "").strip()
+                if raw_val:
+                    try:
+                        amt = Decimal(raw_val)
+                        if amt > 0:
+                            has_per_month_inputs = True
+                            pay_amt = min(amt, entry.balance)
+                            per_month_payments.append((entry, pay_amt))
+                    except Exception:
+                        pass
+
+        payment_date = request.POST.get("payment_date") or timezone.now().date()
+        remarks = request.POST.get("remarks", "").strip()
+
+        if has_per_month_inputs and per_month_payments:
+            total_pay = sum(amt for _, amt in per_month_payments)
+            try:
+                with transaction.atomic():
+                    receipt = FeePaymentReceipt.objects.create(
+                        payment_date=payment_date,
+                        amount_paid=total_pay,
+                        student=student,
+                        remarks=remarks,
+                    )
+                    for entry, pay in per_month_payments:
+                        entry.paid_amount += pay
+                        entry.last_payment_date = payment_date
+                        entry.last_receipt_no = receipt.receipt_no
+                        entry.save(update_fields=["paid_amount", "last_payment_date", "last_receipt_no"])
+                        receipt.month_entries.add(entry)
+
+                    recalculate_ledger_arrears(ledger)
+
+                messages.success(request, f"Fee payment of PKR {total_pay:,.0f} recorded with Receipt No. {receipt.receipt_no}.")
+                return redirect("fee_receipt", pk=receipt.pk)
+            except Exception as e:
+                messages.error(request, f"Unable to record fee payment: {str(e)}.")
+        else:
+            form = FeeCollectForm(ledger, request.POST)
+            if form.is_valid():
+                selected_months = list(form.cleaned_data["selected_months"].order_by("month"))
+                amount_paid = form.cleaned_data["amount_paid"]
+                payment_date = form.cleaned_data["payment_date"]
+                remarks = form.cleaned_data["remarks"]
+
+                total_outstanding = sum(m.balance for m in selected_months)
+
+                if amount_paid <= 0:
+                    messages.error(request, "Amount paid must be greater than zero.")
+                elif amount_paid > total_outstanding:
+                    messages.error(
+                        request,
+                        f"Amount paid ({amount_paid}) cannot exceed total outstanding balance of selected months ({total_outstanding}).",
+                    )
+                else:
+                    try:
+                        with transaction.atomic():
+                            receipt = FeePaymentReceipt.objects.create(
+                                payment_date=payment_date,
+                                amount_paid=amount_paid,
+                                student=student,
+                                remarks=remarks,
+                            )
+
+                            remaining = amount_paid
+                            for entry in selected_months:
+                                if remaining <= 0:
+                                    break
+                                due = entry.balance
+                                pay = min(due, remaining)
+                                entry.paid_amount += pay
+                                entry.last_payment_date = payment_date
+                                entry.last_receipt_no = receipt.receipt_no
+                                entry.save(update_fields=["paid_amount", "last_payment_date", "last_receipt_no"])
+                                receipt.month_entries.add(entry)
+                                remaining -= pay
+
+                            if remaining > 0:
+                                receipt.remarks = f"{receipt.remarks} [Unallocated: {remaining}]".strip()
+                                receipt.save(update_fields=["remarks"])
+
+                            recalculate_ledger_arrears(ledger)
+
+                        messages.success(request, f"Fee payment recorded with Receipt No. {receipt.receipt_no}.")
+                        return redirect("fee_receipt", pk=receipt.pk)
+                    except Exception as e:
+                        messages.error(request, f"Unable to record fee payment: {str(e)}. Please check details and try again.")
+    else:
+        form = FeeCollectForm(
+            ledger,
+            initial={"payment_date": timezone.now().date()},
+        )
+
+    unpaid_entries = ledger.monthly_entries.filter(is_paid=False).order_by("month")
+
+    # Accurate student total dues
+    ledger_entries = list(ledger.monthly_entries.order_by("month"))
+    student_total_dues = max(Decimal("0.00"), ledger_entries[-1].balance if ledger_entries else Decimal("0.00"))
+
+    # Family Household Breakdown
+    family = student.family
+    family_total_dues = Decimal("0.00")
+    family_siblings_summary = []
+    if family and active_session:
+        for sib in family.students.filter(status="Active").select_related("current_class", "current_section"):
+            sib_ledger, sib_created = StudentFeeLedger.objects.get_or_create(student=sib, academic_session=active_session)
+            if sib_created or sib_ledger.monthly_entries.count() < 12:
+                initialize_ledger_months(
+                    sib_ledger, sib, sib.effective_monthly_fee
+                )
+            sib_entries = list(sib_ledger.monthly_entries.order_by("month"))
+            sib_dues = max(Decimal("0.00"), sib_entries[-1].balance if sib_entries else Decimal("0.00"))
+            family_total_dues += sib_dues
+            family_siblings_summary.append({
+                "student": sib,
+                "dues": sib_dues,
+                "is_current": (sib.id == student.id),
+            })
+
+    all_entries = list(ledger.monthly_entries.order_by("month"))
+    paid_entries = [e for e in all_entries if e.is_paid or (e.paid_amount and e.paid_amount > Decimal("0.00"))]
+    recent_receipts = (
+        FeePaymentReceipt.objects.filter(student=student)
+        .prefetch_related("month_entries")
+        .order_by("-payment_date", "-id")[:15]
+    )
+
+    context = {
+        "student": student,
+        "ledger": ledger,
+        "form": form,
+        "unpaid_entries": unpaid_entries,
+        "all_entries": all_entries,
+        "paid_entries": paid_entries,
+        "recent_receipts": recent_receipts,
+        "student_total_dues": student_total_dues,
+        "family": family,
+        "family_total_dues": family_total_dues,
+        "family_siblings_summary": family_siblings_summary,
+    }
+    return render(request, "finance/collect_fee.html", context)
+
+
+@login_required
+def family_payment(request, household_id):
+    """
+    Family Payment screen (FR-5.8):
+    Pay across selected month entries belonging to any linked sibling students in one receipt.
+    """
+    family = get_object_or_404(FamilyHousehold, pk=household_id)
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    if not active_session:
+        active_session = AcademicSession.objects.create(name="2026-2027", is_active=True)
+
+    for sib in family.students.filter(status="Active").select_related("current_class"):
+        sib_ledger, sib_created = StudentFeeLedger.objects.get_or_create(
+            student=sib, academic_session=active_session
+        )
+        if sib_created or sib_ledger.monthly_entries.count() < 12:
+            initialize_ledger_months(
+                sib_ledger, sib, sib.effective_monthly_fee
+            )
+
+    if request.method == "POST":
+        form = FamilyFeePaymentForm(family, active_session, request.POST)
+        if form.is_valid():
+            selected_months = list(form.cleaned_data["selected_months"].order_by("month"))
+            amount_paid = form.cleaned_data["amount_paid"]
+            payment_date = form.cleaned_data["payment_date"]
+            remarks = form.cleaned_data["remarks"]
+
+            total_outstanding = sum(m.balance for m in selected_months)
+            if amount_paid <= 0:
+                messages.error(request, "Amount paid must be greater than zero.")
+            elif amount_paid > total_outstanding:
+                messages.error(
+                    request,
+                    f"Amount paid ({amount_paid}) cannot exceed total outstanding balance of selected months ({total_outstanding}).",
+                )
+            else:
+                first_student = family.students.filter(status="Active").first()
+                if not first_student:
+                    messages.error(request, "No active students found in this family.")
+                    return redirect("family_list")
+
+                try:
+                    with transaction.atomic():
+                        combined_remarks = f"Family Payment: {family.family_id} ({family.father_guardian_name}). {remarks}".strip()
+                        receipt = FeePaymentReceipt.objects.create(
+                            payment_date=payment_date,
+                            amount_paid=amount_paid,
+                            student=first_student,
+                            remarks=combined_remarks,
+                        )
+
+                        remaining = amount_paid
+                        affected_ledgers = set()
+                        for entry in selected_months:
+                            if remaining <= 0:
+                                break
+                            due = entry.balance
+                            pay = min(due, remaining)
+                            entry.paid_amount += pay
+                            entry.last_payment_date = payment_date
+                            entry.last_receipt_no = receipt.receipt_no
+                            entry.save(update_fields=["paid_amount", "last_payment_date", "last_receipt_no"])
+                            receipt.month_entries.add(entry)
+                            affected_ledgers.add(entry.ledger)
+                            remaining -= pay
+
+                        if remaining > 0:
+                            receipt.remarks = f"{receipt.remarks} [Unallocated: {remaining}]".strip()
+                            receipt.save(update_fields=["remarks"])
+
+                        for ledg in affected_ledgers:
+                            recalculate_ledger_arrears(ledg)
+
+                    messages.success(request, f"Family payment recorded with Receipt No. {receipt.receipt_no}.")
+                    return redirect("fee_receipt", pk=receipt.pk)
+                except Exception as e:
+                    messages.error(request, f"Unable to process family payment: {str(e)}. Please check details and try again.")
+    else:
+        form = FamilyFeePaymentForm(
+            family,
+            active_session,
+            initial={"payment_date": timezone.now().date()},
+        )
+
+    return render(
+        request,
+        "finance/family_payment.html",
+        {"family": family, "form": form, "active_session": active_session},
+    )
+
+
+@login_required
+def fee_adjust(request, student_id):
+    """
+    Fee Adjustment screen per student (FR-5.10):
+    Allows changing monthly fee going forward, setting permanent student custom fee, and/or adding fines and extra charges.
+    """
+    student = get_object_or_404(Student, pk=student_id)
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    if not active_session:
+        active_session = AcademicSession.objects.create(name="2026-2027", is_active=True)
+
+    ledger, created = StudentFeeLedger.objects.get_or_create(
+        student=student, academic_session=active_session
+    )
+    if created or ledger.monthly_entries.count() < 12:
+        initialize_ledger_months(
+            ledger, student, student.effective_monthly_fee
+        )
+
+    if request.method == "POST":
+        form = FeeAdjustmentForm(request.POST)
+        if form.is_valid():
+            from_month = int(form.cleaned_data["from_month"])
+            new_fee = form.cleaned_data.get("new_monthly_fee")
+            single_month = form.cleaned_data.get("single_month")
+            exam_fee = form.cleaned_data.get("exam_fee") or Decimal("0.00")
+            fine_punishment = form.cleaned_data.get("fine_punishment") or Decimal("0.00")
+            fine_reason = form.cleaned_data.get("fine_reason") or ""
+            other_charges = form.cleaned_data.get("other_charges") or Decimal("0.00")
+            other_charges_label = form.cleaned_data.get("other_charges_label") or "Other Charges"
+            discount_concession = form.cleaned_data.get("discount_concession") or Decimal("0.00")
+            student_custom_fee = form.cleaned_data.get("student_custom_fee")
+            is_student_free = form.cleaned_data.get("is_student_free", False)
+
+            with transaction.atomic():
+                # Permanent student custom fee / free scholarship
+                if is_student_free:
+                    student.is_fee_free = True
+                    student.custom_monthly_fee = Decimal("0.00")
+                    student.save(update_fields=["is_fee_free", "custom_monthly_fee"])
+                    ledger.monthly_entries.filter(month__gte=from_month, paid_amount=Decimal("0.00")).update(monthly_fee=Decimal("0.00"))
+                elif student_custom_fee is not None:
+                    student.is_fee_free = False
+                    student.custom_monthly_fee = student_custom_fee
+                    student.save(update_fields=["is_fee_free", "custom_monthly_fee"])
+                    ledger.monthly_entries.filter(month__gte=from_month, paid_amount=Decimal("0.00")).update(monthly_fee=student_custom_fee)
+                elif new_fee is not None:
+                    ledger.monthly_entries.filter(month__gte=from_month, paid_amount=Decimal("0.00")).update(monthly_fee=new_fee)
+
+                # Edit exam fee / fines / other charges for single specific month
+                if single_month:
+                    target_m = int(single_month)
+                    entry = ledger.monthly_entries.filter(month=target_m).first()
+                    if entry:
+                        entry.exam_fee = exam_fee
+                        entry.fine_punishment = fine_punishment
+                        entry.fine_reason = fine_reason
+                        entry.other_charges = other_charges
+                        entry.other_charges_label = other_charges_label
+                        entry.discount_concession = discount_concession
+                        entry.save(update_fields=[
+                            "exam_fee", "fine_punishment", "fine_reason",
+                            "other_charges", "other_charges_label", "discount_concession"
+                        ])
+
+                recalculate_ledger_arrears(ledger)
+
+            messages.success(request, f"Fee adjustments applied for {student.full_name}.")
+            return redirect("student_detail", pk=student.pk)
+    else:
+        initial_data = {}
+        if student.custom_monthly_fee is not None:
+            initial_data["student_custom_fee"] = student.custom_monthly_fee
+        if student.is_fee_free:
+            initial_data["is_student_free"] = True
+        form = FeeAdjustmentForm(initial=initial_data)
+
+    return render(
+        request,
+        "finance/fee_adjust.html",
+        {"student": student, "ledger": ledger, "form": form},
+    )
+
+
+@login_required
+def fee_receipt(request, pk):
+    """
+    Printable Fee Receipt view (FR-5.9, FR-8.4) with Month Balance Left,
+    Student Total Remaining Dues, Full Family Household Dues Breakdown,
+    and Itemized Fine / Punishment & Extra Charges.
+    """
+    receipt = get_object_or_404(
+        FeePaymentReceipt.objects.select_related(
+            "student", "student__current_class", "student__current_section", "student__family"
+        ),
+        pk=pk,
+    )
+    month_entries = receipt.month_entries.select_related("ledger", "ledger__student").order_by("month")
+
+    # 1. Remaining dues for the specific months covered on this receipt
+    this_receipt_months_dues_left = sum(m.balance for m in month_entries)
+
+    # 2. Total remaining dues for this student across ALL months in active session
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    student_total_dues_left = Decimal("0.00")
+    student_unpaid_months = []
+    if active_session:
+        student_ledger = StudentFeeLedger.objects.filter(
+            student=receipt.student, academic_session=active_session
+        ).first()
+        if student_ledger:
+            st_entries = list(student_ledger.monthly_entries.order_by("month"))
+            student_total_dues_left = max(Decimal("0.00"), st_entries[-1].balance if st_entries else Decimal("0.00"))
+            student_unpaid_months = [e for e in st_entries if e.balance > 0]
+
+    # 3. Total remaining dues for the FULL FAMILY / HOUSEHOLD across all sibling students
+    family = receipt.student.family
+    family_total_dues_left = Decimal("0.00")
+    family_siblings_summary = []
+    if family and active_session:
+        for sib in family.students.filter(status="Active").select_related("current_class", "current_section"):
+            sib_ledger = StudentFeeLedger.objects.filter(student=sib, academic_session=active_session).first()
+            if sib_ledger:
+                sib_entries = list(sib_ledger.monthly_entries.order_by("month"))
+                sib_dues = max(Decimal("0.00"), sib_entries[-1].balance if sib_entries else Decimal("0.00"))
+                sib_unpaid = [f"{e.get_month_display()} (PKR {max(Decimal('0.00'), e.total_amount - (e.paid_amount or Decimal('0.00'))):,.0f})" for e in sib_entries if e.balance > 0]
+            else:
+                sib_dues = Decimal("0.00")
+                sib_unpaid = []
+            family_total_dues_left += sib_dues
+            family_siblings_summary.append({
+                "student": sib,
+                "dues": sib_dues,
+                "unpaid_months": sib_unpaid,
+                "is_current": (sib.id == receipt.student.id),
+            })
+
+    # 4. Aggregated particulars for the voucher table
+    tuition_fee_sum = sum((m.monthly_fee or Decimal("0.00")) for m in month_entries)
+    exam_fee_sum = sum((m.exam_fee or Decimal("0.00")) for m in month_entries)
+    fine_punishment_sum = sum((m.fine_punishment or Decimal("0.00")) for m in month_entries)
+    fine_reasons = [m.fine_reason.strip() for m in month_entries if (m.fine_punishment or Decimal("0.00")) > 0 and m.fine_reason]
+    fine_reasons_str = ", ".join(list(dict.fromkeys(fine_reasons))) if fine_reasons else ""
+    
+    other_charges_sum = sum((m.other_charges or Decimal("0.00")) for m in month_entries)
+    other_labels = [m.other_charges_label.strip() for m in month_entries if (m.other_charges or Decimal("0.00")) > 0 and m.other_charges_label]
+    other_labels_str = ", ".join(list(dict.fromkeys(other_labels))) if other_labels else "Fund / Other Charges"
+    
+    discount_concession_sum = sum((m.discount_concession or Decimal("0.00")) for m in month_entries)
+    arrears_sum = sum((m.arrears or Decimal("0.00")) for m in month_entries)
+    total_billed_sum = sum((m.total_amount or Decimal("0.00")) for m in month_entries)
+    months_covered_names = ", ".join([m.get_month_display() for m in month_entries])
+    fee_status = "CLEARED" if this_receipt_months_dues_left <= 0 else "PARTIAL"
+
+    whatsapp_data = build_student_fee_receipt_msg(
+        receipt=receipt,
+        student=receipt.student,
+        months_covered_names=months_covered_names,
+        total_billed_sum=total_billed_sum,
+        this_receipt_months_dues_left=this_receipt_months_dues_left,
+        student_total_dues_left=student_total_dues_left,
+        family_total_dues_left=family_total_dues_left,
+        family_count=len(family_siblings_summary),
+        fine_punishment_sum=fine_punishment_sum,
+        fine_reasons_str=fine_reasons_str,
+        other_charges_sum=other_charges_sum,
+        other_labels_str=other_labels_str,
+        discount_concession_sum=discount_concession_sum,
+        principal_name="Dr. Farman Ali",
+        principal_contact="+92 344 9631323",
+        vp_name="Umar Saeed",
+        vp_contact="+92 345 3407095",
+    )
+
+    context = {
+        "receipt": receipt,
+        "month_entries": month_entries,
+        "this_receipt_months_dues_left": this_receipt_months_dues_left,
+        "student_total_dues_left": student_total_dues_left,
+        "student_unpaid_months": student_unpaid_months,
+        "family": family,
+        "family_total_dues_left": family_total_dues_left,
+        "family_siblings_summary": family_siblings_summary,
+        "active_session": active_session,
+        "tuition_fee_sum": tuition_fee_sum,
+        "exam_fee_sum": exam_fee_sum,
+        "fine_punishment_sum": fine_punishment_sum,
+        "fine_reasons_str": fine_reasons_str,
+        "other_charges_sum": other_charges_sum,
+        "other_labels_str": other_labels_str,
+        "discount_concession_sum": discount_concession_sum,
+        "arrears_sum": arrears_sum,
+        "total_billed_sum": total_billed_sum,
+        "months_covered_names": months_covered_names,
+        "fee_status": fee_status,
+        "principal_name": "Dr. Farman Ali",
+        "principal_contact": "+92 344 9631323",
+        "vp_name": "Umar Saeed",
+        "vp_contact": "+92 345 3407095",
+        "developer_name": "Rashid Zada",
+        "developer_contact": "0347-0983567",
+        "admin_name": "Rashid Zada",
+        "admin_contact": "0347-0983567",
+        "whatsapp_data": whatsapp_data,
+    }
+    return render(request, "finance/fee_receipt.html", context)
+
+
+@login_required
+def void_fee_receipt(request, pk):
+    """
+    Void / Return a Fee Payment Receipt.
+    Rolls back paid amounts and receipt metadata on all linked month entries,
+    recalculates arrears for the student's ledger, and deletes the receipt.
+    """
+    receipt = get_object_or_404(
+        FeePaymentReceipt.objects.prefetch_related("month_entries", "student"),
+        pk=pk,
+    )
+    student = receipt.student
+    receipt_no = receipt.receipt_no
+    amount = receipt.amount_paid
+
+    if request.method == "POST":
+        try:
+            with transaction.atomic():
+                entries = list(receipt.month_entries.select_related("ledger"))
+                ledgers_to_update = set()
+                for entry in entries:
+                    ledgers_to_update.add(entry.ledger)
+                    # Reset month paid status
+                    entry.paid_amount = Decimal("0.00")
+                    entry.is_paid = False
+                    entry.last_receipt_no = ""
+                    entry.last_payment_date = None
+                    entry.save(update_fields=["paid_amount", "is_paid", "last_receipt_no", "last_payment_date"])
+
+                # Delete the receipt
+                receipt.delete()
+
+                # Recalculate arrears on affected ledgers
+                for ledg in ledgers_to_update:
+                    recalculate_ledger_arrears(ledg)
+
+            messages.success(
+                request,
+                f"Receipt {receipt_no} (PKR {amount:,.0f}) was successfully voided/returned! Outstanding dues have been restored."
+            )
+        except Exception as e:
+            messages.error(request, f"Error voiding receipt: {e}")
+        return redirect("collect_fee", student_id=student.pk)
+
+    return redirect("collect_fee", student_id=student.pk)
+
+
+@login_required
+def reset_month_fee(request, entry_id):
+    """
+    Reset / Return payment for a single specific month entry.
+    Clears paid amount and marks it unpaid, then recalculates arrears.
+    """
+    entry = get_object_or_404(StudentFeeMonthEntry.objects.select_related("ledger", "ledger__student"), pk=entry_id)
+    student = entry.ledger.student
+    month_name = entry.get_month_display()
+
+    if request.method == "POST":
+        try:
+            with transaction.atomic():
+                entry.paid_amount = Decimal("0.00")
+                entry.is_paid = False
+                entry.last_receipt_no = ""
+                entry.last_payment_date = None
+                entry.save(update_fields=["paid_amount", "is_paid", "last_receipt_no", "last_payment_date"])
+                recalculate_ledger_arrears(entry.ledger)
+
+            messages.success(
+                request,
+                f"Payment for {month_name} has been returned and reset to unpaid for {student.full_name}."
+            )
+        except Exception as e:
+            messages.error(request, f"Error resetting month: {e}")
+        return redirect("collect_fee", student_id=student.pk)
+
+    return redirect("collect_fee", student_id=student.pk)
+
+
+@login_required
+def reset_student_ledger(request, student_id):
+    """
+    Reset / Return all months in the active session for a student back to unpaid.
+    Used when full-year payment was made by mistake or needs a complete reversal.
+    """
+    student = get_object_or_404(Student, pk=student_id)
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    ledger = StudentFeeLedger.objects.filter(student=student, academic_session=active_session).first()
+    if not ledger:
+        ledger = StudentFeeLedger.objects.filter(student=student).first()
+
+    if request.method == "POST":
+        if ledger:
+            try:
+                with transaction.atomic():
+                    # 1. Reset all month entries
+                    for entry in ledger.monthly_entries.all():
+                        entry.paid_amount = Decimal("0.00")
+                        entry.is_paid = False
+                        entry.last_receipt_no = ""
+                        entry.last_payment_date = None
+                        entry.save(update_fields=["paid_amount", "is_paid", "last_receipt_no", "last_payment_date"])
+
+                    # 2. Also void receipts associated with this student's months
+                    void_receipts = request.POST.get("void_receipts", "1")
+                    if void_receipts == "1":
+                        receipts = FeePaymentReceipt.objects.filter(student=student, month_entries__in=ledger.monthly_entries.all()).distinct()
+                        receipts.delete()
+
+                    # 3. Recalculate arrears
+                    recalculate_ledger_arrears(ledger)
+
+                messages.success(
+                    request,
+                    f"Full session ledger for {student.full_name} has been completely reset to unpaid! All 12 months dues are restored."
+                )
+            except Exception as e:
+                messages.error(request, f"Error resetting ledger: {e}")
+        else:
+            messages.warning(request, "No fee ledger found for this student.")
+        return redirect("collect_fee", student_id=student.pk)
+
+    return redirect("collect_fee", student_id=student.pk)
+
+
+@login_required
+def defaulters_list(request):
+    """
+    Defaulters List (FR-5.11):
+    Active students with positive outstanding balance for the active session.
+    """
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    class_id = request.GET.get("class", "")
+    section_id = request.GET.get("section", "")
+
+    students = Student.objects.filter(status="Active").select_related("current_class", "current_section")
+    if class_id:
+        students = students.filter(current_class_id=class_id)
+    if section_id:
+        students = students.filter(current_section_id=section_id)
+
+    defaulters = []
+    total_school_dues = Decimal("0.00")
+
+    if active_session:
+        for s in students:
+            ledger = StudentFeeLedger.objects.filter(student=s, academic_session=active_session).first()
+            if ledger:
+                entries = list(ledger.monthly_entries.order_by("month"))
+                student_dues = max(Decimal("0.00"), entries[-1].balance if entries else Decimal("0.00"))
+                if student_dues > 0:
+                    unpaid_entries = [e for e in entries if e.balance > 0]
+                    total_school_dues += student_dues
+                    unpaid_str = ", ".join([e.get_month_display() for e in unpaid_entries])
+                    wa_data = build_student_dues_reminder_msg(
+                        student=s,
+                        student_total_dues=student_dues,
+                        pending_months_summary=unpaid_str,
+                    )
+                    defaulters.append({
+                        "student": s,
+                        "unpaid_months_count": len(unpaid_entries),
+                        "total_dues": student_dues,
+                        "unpaid_entries": unpaid_entries,
+                        "whatsapp_url": wa_data["url"],
+                        "whatsapp_text": wa_data["text"],
+                        "clean_phone": wa_data["clean_phone"],
+                    })
+
+    # Sort highest-due first
+    defaulters.sort(key=lambda x: x["total_dues"], reverse=True)
+
+    classes = ClassLevel.objects.all()
+    sections = Section.objects.all()
+
+    context = {
+        "defaulters": defaulters,
+        "total_school_dues": total_school_dues,
+        "classes": classes,
+        "sections": sections,
+        "selected_class": class_id,
+        "selected_section": section_id,
+        "active_session": active_session,
+    }
+    return render(request, "finance/defaulters_list.html", context)
+
+
+@login_required
+def family_dues(request):
+    """
+    Family Dues summary (FR-5.12):
+    Total outstanding balance per family household across its students in active session, sorted highest-due first.
+    """
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    families = FamilyHousehold.objects.prefetch_related("students").all()
+
+    family_records = []
+    grand_total_family_dues = Decimal("0.00")
+
+    for fam in families:
+        fam_students = fam.students.filter(status="Active")
+        fam_dues = Decimal("0.00")
+        unpaid_count = 0
+        for s in fam_students:
+            if active_session:
+                ledger = StudentFeeLedger.objects.filter(student=s, academic_session=active_session).first()
+                if ledger:
+                    for e in ledger.monthly_entries.all():
+                        if e.balance > 0:
+                            fam_dues += e.balance
+                            unpaid_count += 1
+
+        grand_total_family_dues += fam_dues
+        wa_data = build_family_dues_reminder_msg(
+            family=fam,
+            fam_students=fam_students,
+            total_dues=fam_dues,
+            unpaid_months_count=unpaid_count,
+        )
+        family_records.append({
+            "family": fam,
+            "students": fam_students,
+            "total_dues": fam_dues,
+            "unpaid_count": unpaid_count,
+            "whatsapp_url": wa_data["url"],
+            "whatsapp_text": wa_data["text"],
+            "clean_phone": wa_data["clean_phone"],
+        })
+
+    family_records.sort(key=lambda x: x["total_dues"], reverse=True)
+
+    context = {
+        "family_records": family_records,
+        "grand_total_family_dues": grand_total_family_dues,
+        "active_session": active_session,
+    }
+    return render(request, "finance/family_dues.html", context)
+
+
+@login_required
+def class_fee_summary(request):
+    """
+    Class Fee Summary report (FR-5.13):
+    For every class level: total due, total paid, and outstanding balance for active session.
+    """
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    classes = ClassLevel.objects.all()
+
+    summary = []
+    grand_due = Decimal("0.00")
+    grand_paid = Decimal("0.00")
+    grand_balance = Decimal("0.00")
+
+    for cls in classes:
+        students = Student.objects.filter(current_class=cls, status="Active")
+        cls_due = Decimal("0.00")
+        cls_paid = Decimal("0.00")
+        cls_balance = Decimal("0.00")
+
+        if active_session:
+            ledgers = StudentFeeLedger.objects.filter(
+                student__in=students, academic_session=active_session
+            ).prefetch_related("monthly_entries")
+
+            for l in ledgers:
+                for e in l.monthly_entries.all():
+                    cls_due += e.total_amount
+                    cls_paid += e.paid_amount
+                    cls_balance += e.balance
+
+        grand_due += cls_due
+        grand_paid += cls_paid
+        grand_balance += cls_balance
+
+        summary.append({
+            "class": cls,
+            "student_count": students.count(),
+            "total_due": cls_due,
+            "total_paid": cls_paid,
+            "balance": cls_balance,
+        })
+
+    context = {
+        "summary": summary,
+        "grand_due": grand_due,
+        "grand_paid": grand_paid,
+        "grand_balance": grand_balance,
+        "active_session": active_session,
+    }
+    return render(request, "finance/class_fee_summary.html", context)
+
+
+@login_required
+def export_fee_register_excel(request):
+    """
+    Exports the comprehensive Fee Register grid to Excel with monthly dues & balances.
+    """
+    active_session = AcademicSession.objects.filter(is_active=True).first()
+    session_id = request.GET.get("session")
+    if session_id:
+        current_session = get_object_or_404(AcademicSession, pk=session_id)
+    else:
+        current_session = active_session or AcademicSession.objects.first()
+
+    class_id = request.GET.get("class", "")
+    students = Student.objects.filter(status="Active").select_related("current_class", "current_section")
+    if class_id:
+        students = students.filter(current_class_id=class_id)
+
+    school = SchoolSetting.objects.first()
+    school_name = school.name if school else "GPS Qala Qalagay"
+
+    month_names = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ]
+
+    headers = [
+        "Adm #",
+        "Student Name",
+        "Father Name",
+        "Class - Section",
+    ] + [f"{m} (Bal)" for m in month_names] + [
+        "Total Billed (PKR)",
+        "Total Paid (PKR)",
+        "Net Outstanding (PKR)",
+    ]
+
+    rows = []
+    if current_session:
+        for student in students:
+            ledger, _ = StudentFeeLedger.objects.get_or_create(
+                student=student, academic_session=current_session
+            )
+            entries = {e.month: e for e in ledger.monthly_entries.all()}
+
+            cls_name = f"{student.current_class.name} - {student.current_section.name}" if student.current_class and student.current_section else (student.current_class.name if student.current_class else "-")
+
+            month_balances = []
+            for m in range(1, 13):
+                entry = entries.get(m)
+                month_balances.append(float(entry.balance) if entry else 0.0)
+
+            total_due = float(sum(e.total_amount for e in entries.values()))
+            total_paid = float(sum(e.paid_amount for e in entries.values()))
+            total_balance = float(sum(e.balance for e in entries.values()))
+
+            rows.append([
+                student.admission_no,
+                student.full_name,
+                student.father_name or "-",
+                cls_name,
+            ] + month_balances + [
+                total_due,
+                total_paid,
+                total_balance,
+            ])
+
+    timestamp = timezone.now().strftime("%Y%m%d_%H%M")
+    filename = f"Fee_Register_{timestamp}.xlsx"
+    session_title = f"Fee Register ({current_session.name if current_session else 'All'})"
+    buffer = create_styled_workbook(session_title, headers, rows, school_name=school_name)
+    return excel_download_response(buffer, filename)
+
+
+@login_required
+def export_defaulters_excel(request):
+    """
+    Exports the Defaulters list (students with outstanding fee balances) to Excel.
+    """
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    class_id = request.GET.get("class", "")
+    section_id = request.GET.get("section", "")
+
+    students = Student.objects.filter(status="Active").select_related("current_class", "current_section")
+    if class_id:
+        students = students.filter(current_class_id=class_id)
+    if section_id:
+        students = students.filter(current_section_id=section_id)
+
+    school = SchoolSetting.objects.first()
+    school_name = school.name if school else "GPS Qala Qalagay"
+
+    headers = [
+        "Adm #",
+        "Student Name",
+        "Father Name",
+        "Class",
+        "Section",
+        "Contact Number",
+        "Unpaid Months Count",
+        "Total Outstanding Dues (PKR)",
+    ]
+
+    defaulter_rows = []
+    if active_session:
+        for s in students:
+            ledger = StudentFeeLedger.objects.filter(student=s, academic_session=active_session).first()
+            if ledger:
+                unpaid_entries = [e for e in ledger.monthly_entries.all() if e.balance > 0]
+                if unpaid_entries:
+                    student_dues = sum(e.balance for e in unpaid_entries)
+                    defaulter_rows.append({
+                        "adm_no": s.admission_no,
+                        "name": s.full_name,
+                        "father": s.father_name or "-",
+                        "class": s.current_class.name if s.current_class else "-",
+                        "section": s.current_section.name if s.current_section else "-",
+                        "contact": s.contact_number or "-",
+                        "unpaid_count": len(unpaid_entries),
+                        "dues": float(student_dues),
+                    })
+
+    defaulter_rows.sort(key=lambda x: x["dues"], reverse=True)
+
+    rows = [
+        [
+            d["adm_no"],
+            d["name"],
+            d["father"],
+            d["class"],
+            d["section"],
+            d["contact"],
+            d["unpaid_count"],
+            d["dues"],
+        ]
+        for d in defaulter_rows
+    ]
+
+    timestamp = timezone.now().strftime("%Y%m%d_%H%M")
+    filename = f"Fee_Defaulters_{timestamp}.xlsx"
+    buffer = create_styled_workbook("Fee Defaulters Ledger", headers, rows, school_name=school_name)
+    return excel_download_response(buffer, filename)
+
+
+# ==============================================================================
+# STUDENT & FAMILY OUTSTANDING DUES REMINDER NOTICES (PRINTABLE / PDF SLIPS)
+# ==============================================================================
+
+def _get_student_dues_data(student, session=None):
+    """
+    Helper to extract complete fee dues, unpaid months ledger,
+    and linked family sibling summaries for a student.
+    """
+    if not session:
+        session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+
+    school_setting = SchoolSetting.objects.first()
+    ledger = StudentFeeLedger.objects.filter(student=student, academic_session=session).first()
+    if not ledger and session:
+        ledger = StudentFeeLedger.objects.create(student=student, academic_session=session)
+        initialize_ledger_months(
+            ledger, student, student.current_class.monthly_fee if student.current_class else Decimal("0.00")
+        )
+
+    unpaid_entries = list(ledger.monthly_entries.filter(is_paid=False).order_by("month")) if ledger else []
+    ledger_entries = list(ledger.monthly_entries.order_by("month")) if ledger else []
+    total_dues = max(Decimal("0.00"), ledger_entries[-1].balance if ledger_entries else Decimal("0.00"))
+
+    family = student.family
+    family_total_dues = Decimal("0.00")
+    family_siblings = []
+    if family and session:
+        for sib in family.students.filter(status="Active").select_related("current_class", "current_section"):
+            sib_ledger = StudentFeeLedger.objects.filter(student=sib, academic_session=session).first()
+            sib_dues = Decimal("0.00")
+            sib_unpaid_count = 0
+            if sib_ledger:
+                sib_entries = list(sib_ledger.monthly_entries.order_by("month"))
+                sib_dues = max(Decimal("0.00"), sib_entries[-1].balance if sib_entries else Decimal("0.00"))
+                sib_unpaid_count = sib_ledger.monthly_entries.filter(is_paid=False).count()
+            family_total_dues += sib_dues
+            family_siblings.append({
+                "student": sib,
+                "dues": sib_dues,
+                "unpaid_count": sib_unpaid_count,
+            })
+
+    return {
+        "student": student,
+        "session": session,
+        "ledger": ledger,
+        "unpaid_entries": unpaid_entries,
+        "total_dues": total_dues,
+        "family": family,
+        "family_total_dues": family_total_dues,
+        "family_siblings": family_siblings,
+        "school_setting": school_setting,
+    }
+
+
+def _get_family_dues_data(family, session=None):
+    """
+    Helper to extract consolidated family household fee dues across all enrolled siblings.
+    """
+    if not session:
+        session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+
+    school_setting = SchoolSetting.objects.first()
+    fam_students = family.students.filter(status="Active").select_related("current_class", "current_section")
+
+    siblings_data = []
+    grand_total_dues = Decimal("0.00")
+    total_unpaid_months = 0
+
+    for s in fam_students:
+        s_data = _get_student_dues_data(s, session)
+        siblings_data.append(s_data)
+        grand_total_dues += s_data["total_dues"]
+        total_unpaid_months += len(s_data["unpaid_entries"])
+
+    return {
+        "family": family,
+        "session": session,
+        "siblings_data": siblings_data,
+        "grand_total_dues": grand_total_dues,
+        "total_unpaid_months": total_unpaid_months,
+        "school_setting": school_setting,
+    }
+
+
+@login_required
+def student_dues_notice(request, student_id):
+    """
+    Official Printable / PDF Fee Dues Reminder Notice & Payment Chalan for an individual student.
+    """
+    student = get_object_or_404(Student, pk=student_id)
+    session_id = request.GET.get("session")
+    session = AcademicSession.objects.filter(id=session_id).first() if session_id else None
+
+    data = _get_student_dues_data(student, session)
+    context = {
+        "data": data,
+        "student": data["student"],
+        "unpaid_entries": data["unpaid_entries"],
+        "total_dues": data["total_dues"],
+        "family": data["family"],
+        "family_total_dues": data["family_total_dues"],
+        "family_siblings": data["family_siblings"],
+        "school_setting": data["school_setting"],
+        "session": data["session"],
+        "issue_date": timezone.now().date(),
+        "notice_ref": f"REM-ADM{student.admission_no}-{timezone.now().strftime('%Y%m%d')}",
+    }
+    return render(request, "finance/student_dues_notice.html", context)
+
+
+@login_required
+def family_dues_notice(request, household_id):
+    """
+    Official Printable / PDF Consolidated Family Household Fee Dues Reminder Notice.
+    Covers all siblings with individual itemized dues and consolidated household total.
+    """
+    family = get_object_or_404(FamilyHousehold, pk=household_id)
+    session_id = request.GET.get("session")
+    session = AcademicSession.objects.filter(id=session_id).first() if session_id else None
+
+    data = _get_family_dues_data(family, session)
+    context = {
+        "data": data,
+        "family": data["family"],
+        "siblings_data": data["siblings_data"],
+        "grand_total_dues": data["grand_total_dues"],
+        "total_unpaid_months": data["total_unpaid_months"],
+        "school_setting": data["school_setting"],
+        "session": data["session"],
+        "issue_date": timezone.now().date(),
+        "notice_ref": f"FAM-REM-{family.family_id}-{timezone.now().strftime('%Y%m%d')}",
+    }
+    return render(request, "finance/family_dues_notice.html", context)
+
+
+@login_required
+def bulk_student_dues_notices(request):
+    """
+    Batch printable PDF slips for multiple student fee defaulters (e.g. filtered by class).
+    """
+    active_session = AcademicSession.objects.filter(is_active=True).first() or AcademicSession.objects.first()
+    class_id = request.GET.get("class", "")
+    section_id = request.GET.get("section", "")
+
+    students = Student.objects.filter(status="Active").select_related("current_class", "current_section")
+    if class_id:
+        students = students.filter(current_class_id=class_id)
+    if section_id:
+        students = students.filter(current_section_id=section_id)
+
+    students_dues_list = []
+    for s in students:
+        s_data = _get_student_dues_data(s, active_session)
+        if s_data["total_dues"] > 0:
+            students_dues_list.append(s_data)
+
+    context = {
+        "students_dues_list": students_dues_list,
+        "school_setting": SchoolSetting.objects.first(),
+        "session": active_session,
+        "issue_date": timezone.now().date(),
+    }
+    return render(request, "finance/bulk_student_dues_notices.html", context)
+
+
